@@ -70,7 +70,7 @@ SEQUENCE_TARGET:   300,2700 (0-based)  /  301,2700 (1-based, Primer3Plus 显示)
   - `no_hit`：无命中
 - 输出特异性状态和 `specificity_explain`（人类可读的分类原因）
 
-## 环境准备（WSL / Ubuntu）
+## 安装
 
 ```bash
 # 推荐：用 micromamba 建独立环境
@@ -79,8 +79,11 @@ micromamba create -n primer_panel -c conda-forge -c bioconda \
 
 micromamba activate primer_panel
 
+# 安装 primer-panel（含 CLI 工具）
+pip install -e .
+
 # 验证
-python -c "import requests, openpyxl, pandas; print('OK')"
+primer-panel --help
 primer3_core --version
 ```
 
@@ -95,24 +98,31 @@ primer3_core --version
 ### Stage 1 only（不需要 Primer3）
 
 ```bash
-python -m primer_panel --genes HFE HJV TFR2 SLC40A1 HAMP FTH1 \
+primer-panel --genes HFE HJV TFR2 SLC40A1 HAMP FTH1 \
     --target-size 2700-3300 \
-    --cds-buffer 30 \
-    --primer-flank 300 \
+    --primer-flank 500 \
     --output-dir outputs/test_targets
 ```
 
 ### Stage 1 + Stage 2 + Stage 3（完整流程）
 
 ```bash
-python -m primer_panel --genes HFE HJV TFR2 SLC40A1 HAMP FTH1 \
+primer-panel --genes HFE HJV TFR2 SLC40A1 HAMP FTH1 \
     --target-size 2700-3300 \
-    --cds-buffer 30 \
-    --primer-flank 300 \
+    --primer-flank 500 \
     --genome-fasta /path/to/hg38.fa \
     --design-primers \
     --check-specificity \
     --output-dir outputs/hcc6_primers
+```
+
+### Panel Finalization（选最优引物 + rescue）
+
+```bash
+primer-panel-finalize \
+    --input-dir outputs/hcc6_primers \
+    --output-dir outputs/panel_final \
+    --genome-fasta /path/to/hg38.fa
 ```
 
 ## 参数说明

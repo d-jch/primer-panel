@@ -183,7 +183,7 @@ class TestPanelFinalizationRescue:
     def test_rescue_stage3_uses_saved_primer_coords(
         self, tmp_path, monkeypatch,
     ):
-        import panel_finalization
+        import primer_panel.panel_finalization as panel_finalization
 
         rescue_primers = tmp_path / "rescue_primers.tsv"
         rescue_primers.write_text(
