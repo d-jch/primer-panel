@@ -53,6 +53,13 @@ class SpecificityResult:
     specificity_explain: str    # human-readable explanation of the classification
 
 
+@dataclass(frozen=True)
+class IsPcrDatabase:
+    """Resolved database inputs for a single isPcr run."""
+    database_path: Path
+    ooc_path: Path | None = None
+
+
 # ──────────────────────────────────────────────────────────────────────
 # isPcr availability check
 # ──────────────────────────────────────────────────────────────────────
@@ -60,6 +67,116 @@ class SpecificityResult:
 def check_ispcr_available(bin_path: str = "isPcr") -> bool:
     """Check whether isPcr is callable."""
     return shutil.which(bin_path) is not None
+
+
+def _genome_basename(path: Path) -> str:
+    """Return a useful base name for FASTA-like files, including .fa.gz."""
+    name = path.name
+    for suffix in (".fa.gz", ".fasta.gz", ".fna.gz", ".fa", ".fasta", ".fna"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return path.stem
+
+
+def _find_ooc(search_dirs: list[Path], base: str, tile_size: int) -> Path | None:
+    """Find an overused-tile file matching the requested tile size."""
+    names = [f"{base}.{tile_size}.ooc", f"hg38.{tile_size}.ooc"]
+    for directory in search_dirs:
+        for name in names:
+            candidate = directory / name
+            if candidate.exists():
+                return candidate
+        matches = sorted(directory.glob(f"*.{tile_size}.ooc"))
+        if matches:
+            return matches[0]
+    return None
+
+
+def resolve_ispcr_database(
+    genome_fasta: str | Path,
+    *,
+    ispcr_db: str | Path | None = None,
+    ispcr_ooc: str | Path | None = None,
+    tile_size: int = 11,
+) -> IsPcrDatabase:
+    """Resolve the fastest available database for isPcr."""
+    genome_path = Path(genome_fasta)
+    if ispcr_db is not None:
+        db_path = Path(ispcr_db)
+    elif genome_path.suffix.lower() in {".2bit", ".nib"}:
+        db_path = genome_path
+    else:
+        base = _genome_basename(genome_path)
+        db_path = genome_path
+        for candidate in (genome_path.parent / f"{base}.2bit", genome_path.parent / f"{base}.nib"):
+            if candidate.exists():
+                db_path = candidate
+                break
+
+    search_dirs = []
+    for directory in (db_path.parent, genome_path.parent):
+        if directory not in search_dirs:
+            search_dirs.append(directory)
+    ooc_path = Path(ispcr_ooc) if ispcr_ooc else _find_ooc(
+        search_dirs, _genome_basename(db_path), tile_size,
+    )
+    if ooc_path is not None and not ooc_path.exists():
+        ooc_path = None
+    return IsPcrDatabase(database_path=db_path, ooc_path=ooc_path)
+
+
+def prepare_ispcr_twobit(
+    genome_fasta: str | Path,
+    *,
+    output_path: str | Path | None = None,
+    fa_to_twobit_bin: str = "faToTwoBit",
+) -> Path:
+    """Create a same-basename .2bit database when explicitly requested."""
+    genome_path = Path(genome_fasta)
+    out_path = Path(output_path) if output_path else genome_path.with_name(
+        f"{_genome_basename(genome_path)}.2bit"
+    )
+    if out_path.exists():
+        return out_path
+    proc = subprocess.run(
+        [fa_to_twobit_bin, str(genome_path), str(out_path)],
+        capture_output=True,
+        text=True,
+        timeout=3600,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"faToTwoBit failed: {proc.stderr[:200]}")
+    return out_path
+
+
+def make_ispcr_ooc(
+    database_path: str | Path,
+    *,
+    output_path: str | Path | None = None,
+    ispcr_bin: str = "isPcr",
+    tile_size: int = 11,
+) -> Path:
+    """Create an isPcr overused-tile file when explicitly requested."""
+    db_path = Path(database_path)
+    out_path = Path(output_path) if output_path else db_path.with_name(
+        f"{_genome_basename(db_path)}.{tile_size}.ooc"
+    )
+    proc = subprocess.run(
+        [
+            ispcr_bin,
+            str(db_path),
+            os.devnull,
+            os.devnull,
+            f"-tileSize={tile_size}",
+            f"-makeOoc={out_path}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=7200,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"isPcr -makeOoc failed: {proc.stderr[:200]}")
+    return out_path
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -72,6 +189,9 @@ def run_ispcr_batch(
     ispcr_bin: str = "isPcr",
     min_perfect: int = 15,
     min_good: int = 15,
+    ispcr_db: str | None = None,
+    ispcr_ooc: str | None = None,
+    tile_size: int = 11,
 ) -> dict[str, list[PcrHit]]:
     """Run isPcr on a batch of primer pairs and return ALL hits.
 
@@ -93,13 +213,24 @@ def run_ispcr_batch(
 
     # Run isPcr
     try:
+        resolved_db = resolve_ispcr_database(
+            genome_fasta,
+            ispcr_db=ispcr_db,
+            ispcr_ooc=ispcr_ooc,
+            tile_size=tile_size,
+        )
         cmd = [
             ispcr_bin,
-            genome_fasta,
+            str(resolved_db.database_path),
             query_path,
             "stdout",
             "-out=bed",
+            f"-tileSize={tile_size}",
+            f"-minPerfect={min_perfect}",
+            f"-minGood={min_good}",
         ]
+        if resolved_db.ooc_path is not None:
+            cmd.append(f"-ooc={resolved_db.ooc_path}")
         proc = subprocess.run(
             cmd,
             capture_output=True,
@@ -149,6 +280,9 @@ def check_specificity_batch(
     tolerance: int = 10,
     min_perfect: int = 15,
     min_good: int = 15,
+    ispcr_db: str | None = None,
+    ispcr_ooc: str | None = None,
+    tile_size: int = 11,
 ) -> dict[str, SpecificityResult]:
     """Check genome-wide PCR specificity for a batch of primer pairs.
 
@@ -166,6 +300,9 @@ def check_specificity_batch(
             ispcr_bin=ispcr_bin,
             min_perfect=min_perfect,
             min_good=min_good,
+            ispcr_db=ispcr_db,
+            ispcr_ooc=ispcr_ooc,
+            tile_size=tile_size,
         )
     except Exception as exc:
         logger.error("isPcr batch failed: %s", exc)

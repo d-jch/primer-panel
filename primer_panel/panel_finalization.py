@@ -1,13 +1,13 @@
-"""Panel Finalization: select recommended primers and rescue failed targets.
+﻿"""Panel Finalization: select recommended primers and rescue failed targets.
 
-Reads Stage 2+3 outputs, selects best unique primer per target,
-and attempts rescue for targets without unique primers.
+Reads Stage 2+3 outputs and selects the best unique primer per target.
+Experimental rescue attempts only run when explicitly requested.
 
 Usage:
-    python panel_finalization.py \
-        --input-dir outputs/refactor_hcc6_stage3_nosizefilter \
-        --output-dir outputs/panel_final \
-        --genome-fasta /mnt/e/hg38/genome.fa
+    primer-panel-finalize \\
+        --input-dir outputs/hcc6_primers \\
+        --output-dir outputs/panel_final \\
+        --genome-fasta /path/to/hg38.fa
 """
 
 from __future__ import annotations
@@ -20,16 +20,12 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(levelname)s %(name)s: %(message)s",
-)
 logger = logging.getLogger("panel_finalization")
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # Data loading
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
 def load_specificity_tsv(path: Path) -> list[dict]:
     """Load primers_specificity.tsv."""
@@ -49,9 +45,9 @@ def load_target_summary(path: Path) -> dict[str, dict]:
     return targets
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # Recommended primer selection
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
 def select_recommended(rows: list[dict]) -> tuple[list[dict], list[str]]:
     """Select best unique_pass primer per target.
@@ -81,9 +77,9 @@ def select_recommended(rows: list[dict]) -> tuple[list[dict], list[str]]:
     return recommended, failed
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # FTH1 rescue analysis
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
 def analyze_fth1_multi_hit(rows: list[dict]) -> dict:
     """Analyze FTH1_cds1_4 multi-hit pattern."""
@@ -125,9 +121,9 @@ def analyze_fth1_multi_hit(rows: list[dict]) -> dict:
     }
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # Rescue: re-run Primer3 with different parameters
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
 def rescue_fth1_with_more_primers(
     target_summary: dict[str, dict],
@@ -318,12 +314,16 @@ def run_stage3_on_rescue(
         for row in csv.DictReader(f, delimiter="\t"):
             target_info[row["target_id"]] = row
 
-    tgt = target_info.get("FTH1_cds1_4", {})
-    template_chrom = tgt.get("template_chrom", "")
-
     # Build batch
     primer_batch = []
     for p in primers:
+        target_id = p.get("target_id", "")
+        tgt = target_info.get(target_id)
+        if tgt is None:
+            return {"status": "error", "detail": f"{target_id} not found in target_summary"}
+        template_chrom = tgt.get("template_chrom", "")
+        if not template_chrom:
+            return {"status": "error", "detail": f"{target_id} missing template_chrom"}
         template_start = int(tgt.get("template_start", 0))
         left_start = int(p.get("primer_left_start", 0))
         right_start = int(p.get("primer_right_start", 0))
@@ -336,7 +336,7 @@ def run_stage3_on_rescue(
             "expected_end": template_start + right_start + 1,
         })
 
-    logger.info("Running isPcr on %d rescue primers …", len(primer_batch))
+    logger.info("Running isPcr on %d rescue primers ...", len(primer_batch))
 
     t0 = time.time()
     results = check_specificity_batch(
@@ -360,6 +360,7 @@ def run_stage3_on_rescue(
             continue
 
         entry = {
+            "target_id": primer.get("target_id", ""),
             "rank": rank,
             "fwd": primer["forward_primer"],
             "rev": primer["reverse_primer"],
@@ -393,9 +394,9 @@ def run_stage3_on_rescue(
     }
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # Split target rescue: FTH1_cds1_2 + FTH1_cds3_4
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
 def rescue_fth1_split_targets(
     genome_fasta: Path,
@@ -516,7 +517,7 @@ def rescue_fth1_split_targets(
             logger.warning("No valid sequence for %s", rec.target_id)
             continue
 
-        logger.info("Running Primer3 for %s …", rec.target_id)
+        logger.info("Running Primer3 for %s ...", rec.target_id)
         p3_results = run_primer3_for_target(
             target_id=rec.target_id,
             sequence=seq,
@@ -543,7 +544,7 @@ def rescue_fth1_split_targets(
                 "expected_end": exp_end,
             })
 
-    logger.info("Running isPcr on %d split primers …", len(primer_batch))
+    logger.info("Running isPcr on %d split primers ...", len(primer_batch))
     t0 = time.time()
     specificity_results = check_specificity_batch(
         primer_pairs=primer_batch,
@@ -596,9 +597,9 @@ def rescue_fth1_split_targets(
     }
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # Output writers
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
 def write_recommended_primers(recommended: list[dict], output_dir: Path) -> None:
     """Write recommended_primers.tsv and .xlsx."""
@@ -616,7 +617,7 @@ def write_recommended_primers(recommended: list[dict], output_dir: Path) -> None
         writer.writeheader()
         for r in recommended:
             writer.writerow(r)
-    logger.info("Recommended primers TSV → %s (%d rows)", tsv_path, len(recommended))
+    logger.info("Recommended primers TSV -> %s (%d rows)", tsv_path, len(recommended))
 
     # XLSX
     try:
@@ -629,9 +630,9 @@ def write_recommended_primers(recommended: list[dict], output_dir: Path) -> None
             ws.append([r.get(c, "") for c in cols])
         xlsx_path = output_dir / "recommended_primers.xlsx"
         wb.save(xlsx_path)
-        logger.info("Recommended primers XLSX → %s", xlsx_path)
+        logger.info("Recommended primers XLSX -> %s", xlsx_path)
     except ImportError:
-        logger.info("openpyxl not installed — skipping XLSX")
+        logger.info("openpyxl not installed -- skipping XLSX")
 
 
 def write_failed_targets(failed_tids: list[str], rows: list[dict], output_dir: Path) -> None:
@@ -649,7 +650,7 @@ def write_failed_targets(failed_tids: list[str], rows: list[dict], output_dir: P
             best_explain = tid_rows[0].get("specificity_explain", "") if tid_rows else ""
             reason = "no_unique_primer"
             writer.writerow([tid, reason, len(tid_rows), unique, multi, no_hit, best_explain])
-    logger.info("Failed targets → %s (%d targets)", path, len(failed_tids))
+    logger.info("Failed targets -> %s (%d targets)", path, len(failed_tids))
 
 
 def write_panel_summary(
@@ -704,7 +705,7 @@ def write_panel_summary(
                     lines.append(f"  multi_hit: {len(result.get('multi_hit', []))}")
                     lines.append(f"  no_hit: {len(result.get('no_hit', []))}")
                     if result.get("unique_pass"):
-                        lines.append("  RESCUED — unique primers found:")
+                        lines.append("  RESCUED -- unique primers found:")
                         for p in result["unique_pass"][:3]:
                             lines.append(f"    rank {p['rank']}: {p['fwd']} / {p['rev']} (penalty={p['penalty']})")
                 elif "targets" in result:
@@ -719,14 +720,14 @@ def write_panel_summary(
                             for p in stats["unique_pass"][:3]:
                                 lines.append(f"      rank {p['rank']}: {p['fwd']} / {p['rev']} (penalty={p['penalty']})")
                         else:
-                            lines.append("    NOT rescued — no unique primers")
+                            lines.append("    NOT rescued -- no unique primers")
             else:
                 lines.append(f"  error: {result.get('detail', 'unknown')}")
 
     path = output_dir / "panel_summary.txt"
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
-    logger.info("Panel summary → %s", path)
+    logger.info("Panel summary -> %s", path)
 
 
 def write_rescue_attempts(rescue_results: dict, output_dir: Path) -> None:
@@ -747,7 +748,7 @@ def write_rescue_attempts(rescue_results: dict, output_dir: Path) -> None:
                 for status_key in ["unique_pass", "multi_hit", "no_hit"]:
                     for p in result.get(status_key, []):
                         writer.writerow([
-                            attempt_name, "FTH1_cds1_4", p["rank"],
+                            attempt_name, p.get("target_id", "FTH1_cds1_4"), p["rank"],
                             p["fwd"], p["rev"], p["penalty"], p["product_size"],
                             p["insilico_status"], p["hit_count"], p["specificity_explain"],
                         ])
@@ -762,14 +763,14 @@ def write_rescue_attempts(rescue_results: dict, output_dir: Path) -> None:
                                 p["status"], p["hit_count"], p["explain"],
                             ])
 
-    logger.info("Rescue attempts → %s", path)
+    logger.info("Rescue attempts -> %s", path)
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # Main
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
-def main():
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Panel finalization")
     parser.add_argument("--input-dir", type=Path, required=True,
                         help="Directory with Stage 2+3 outputs")
@@ -779,7 +780,20 @@ def main():
                         help="Path to hg38 FASTA")
     parser.add_argument("--is-pcr-bin", type=str, default="isPcr",
                         help="Path to isPcr binary")
-    args = parser.parse_args()
+    parser.add_argument("--rescue-target", action="append", default=[],
+                        help="Explicit failed target to rescue. Currently only FTH1_cds1_4 has an implemented rescue strategy.")
+    parser.add_argument("--rescue-all", action="store_true",
+                        help="Run implemented rescue strategies for all supported failed targets.")
+    parser.add_argument("--experimental-split-rescue", action="store_true",
+                        help="Also try the experimental FTH1 split-target rescue.")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Enable debug logging.")
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -804,19 +818,33 @@ def main():
     recommended, failed_tids = select_recommended(rows)
     logger.info("Recommended: %d targets, Failed: %d targets", len(recommended), len(failed_tids))
 
-    # 2. Analyze FTH1 multi-hit
-    if "FTH1_cds1_4" in failed_tids:
+    requested_rescue = set(failed_tids if args.rescue_all else args.rescue_target)
+    requested_rescue &= set(failed_tids)
+
+    # 2. Analyze FTH1 multi-hit only when FTH1 rescue was requested.
+    if "FTH1_cds1_4" in requested_rescue:
         logger.info("\n=== FTH1_cds1_4 Multi-hit Analysis ===")
         fth1_analysis = analyze_fth1_multi_hit(rows)
         logger.info("  Off-target chromosomes: %s", fth1_analysis["off_target_chroms"])
         logger.info("  Expected hits: %d locations", len(fth1_analysis["expected_hits"]))
         for chrom, locs in fth1_analysis["off_target_by_chrom"].items():
             logger.info("  %s: %d off-target locations", chrom, len(locs))
+    elif "FTH1_cds1_4" in failed_tids:
+        logger.info(
+            "FTH1_cds1_4 failed; skipping rescue by default. "
+            "Pass --rescue-target FTH1_cds1_4 to enable it."
+        )
 
     # 3. Rescue attempts
     rescue_results = {}
 
-    if "FTH1_cds1_4" in failed_tids:
+    for tid in sorted(tid for tid in requested_rescue if tid != "FTH1_cds1_4"):
+        rescue_results[f"unsupported_{tid}"] = {
+            "status": "error",
+            "detail": f"No implemented rescue strategy for {tid}",
+        }
+
+    if "FTH1_cds1_4" in requested_rescue:
         # Attempt 1: More primers with stricter params
         logger.info("\n=== Rescue Attempt 1: More primers (50), stricter params ===")
         rescue1 = rescue_fth1_with_more_primers(
@@ -828,7 +856,7 @@ def main():
         )
 
         if rescue1["status"] == "ok" and rescue1["primer_count"] > 0:
-            logger.info("  Primer3 returned %d ok pairs, running Stage 3 …", rescue1["primer_count"])
+            logger.info("  Primer3 returned %d ok pairs, running Stage 3 ...", rescue1["primer_count"])
             s3_result = run_stage3_on_rescue(
                 Path(rescue1["rescue_primers_path"]),
                 target_path, args.genome_fasta, args.output_dir,
@@ -836,25 +864,28 @@ def main():
             )
             rescue_results["attempt1_more_primers_strict"] = s3_result
             if s3_result.get("unique_pass"):
-                logger.info("  ✓ RESCUED: %d unique_pass primers found", len(s3_result["unique_pass"]))
+                logger.info("  [OK] RESCUED: %d unique_pass primers found", len(s3_result["unique_pass"]))
             else:
-                logger.info("  ✗ Not rescued: %d multi_hit, %d no_hit",
+                logger.info("  [FAIL] Not rescued: %d multi_hit, %d no_hit",
                            len(s3_result.get("multi_hit", [])), len(s3_result.get("no_hit", [])))
 
-        # Attempt 2: Split targets
-        logger.info("\n=== Rescue Attempt 2: Split FTH1_cds1_4 into smaller targets ===")
-        rescue2 = rescue_fth1_split_targets(
-            args.genome_fasta, args.output_dir, is_pcr_bin=args.is_pcr_bin,
-        )
-        rescue_results["attempt2_split_targets"] = rescue2
+        if args.experimental_split_rescue:
+            # Attempt 2: Split targets
+            logger.info("\n=== Rescue Attempt 2: Split FTH1_cds1_4 into smaller targets ===")
+            rescue2 = rescue_fth1_split_targets(
+                args.genome_fasta, args.output_dir, is_pcr_bin=args.is_pcr_bin,
+            )
+            rescue_results["attempt2_split_targets"] = rescue2
 
-        if rescue2.get("status") == "ok":
-            for tid, stats in rescue2.get("targets", {}).items():
-                if stats["unique_pass"]:
-                    logger.info("  ✓ %s RESCUED: %d unique_pass", tid, len(stats["unique_pass"]))
-                else:
-                    logger.info("  ✗ %s not rescued: %d multi_hit, %d no_hit",
-                               tid, len(stats["multi_hit"]), len(stats["no_hit"]))
+            if rescue2.get("status") == "ok":
+                for tid, stats in rescue2.get("targets", {}).items():
+                    if stats["unique_pass"]:
+                        logger.info("  rescued %s: %d unique_pass", tid, len(stats["unique_pass"]))
+                    else:
+                        logger.info(
+                            "  %s not rescued: %d multi_hit, %d no_hit",
+                            tid, len(stats["multi_hit"]), len(stats["no_hit"]),
+                        )
 
     # 4. Write outputs
     logger.info("\n=== Writing outputs ===")
@@ -880,15 +911,15 @@ def main():
             if status == "ok":
                 if "unique_pass" in result:
                     n = len(result["unique_pass"])
-                    print(f"  {name}: {'✓ RESCUED' if n > 0 else '✗ failed'} ({n} unique)")
+                    print(f"  {name}: {'[OK] RESCUED' if n > 0 else '[FAIL] failed'} ({n} unique)")
                 elif "targets" in result:
                     for tid, stats in result["targets"].items():
                         n = len(stats["unique_pass"])
-                        print(f"  {name}/{tid}: {'✓ RESCUED' if n > 0 else '✗ failed'} ({n} unique)")
+                        print(f"  {name}/{tid}: {'[OK] RESCUED' if n > 0 else '[FAIL] failed'} ({n} unique)")
             else:
-                print(f"  {name}: error — {result.get('detail', '')}")
+                print(f"  {name}: error -- {result.get('detail', '')}")
 
-    print(f"\nOutputs → {args.output_dir}")
+    print(f"\nOutputs -> {args.output_dir}")
 
 
 if __name__ == "__main__":

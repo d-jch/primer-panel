@@ -15,6 +15,7 @@ from primer_panel.insilico_pcr import (
     PcrHit,
     check_ispcr_available,
     check_specificity_batch,
+    resolve_ispcr_database,
     run_ispcr_batch,
 )
 from primer_panel.stage3_inputs import build_stage3_inputs
@@ -81,6 +82,81 @@ class TestSpecificityBatchEmpty:
             genome_fasta="/mnt/e/hg38/genome.fa",
         )
         assert results == {}
+
+
+class TestIsPcrDatabaseResolution:
+    def test_prefers_same_basename_twobit_next_to_genome_fasta(self, tmp_path):
+        genome = tmp_path / "hg38.fa"
+        genome.write_text(">chr1\nACGT\n", encoding="utf-8")
+        twobit = tmp_path / "hg38.2bit"
+        twobit.write_bytes(b"")
+
+        resolved = resolve_ispcr_database(genome)
+
+        assert resolved.database_path == twobit
+        assert resolved.ooc_path is None
+
+    def test_discovers_matching_tile_ooc_next_to_database(self, tmp_path):
+        genome = tmp_path / "hg38.fa"
+        genome.write_text(">chr1\nACGT\n", encoding="utf-8")
+        twobit = tmp_path / "hg38.2bit"
+        twobit.write_bytes(b"")
+        ooc = tmp_path / "hg38.11.ooc"
+        ooc.write_bytes(b"")
+        (tmp_path / "hg38.12.ooc").write_bytes(b"")
+
+        resolved = resolve_ispcr_database(genome, tile_size=11)
+
+        assert resolved.database_path == twobit
+        assert resolved.ooc_path == ooc
+
+    def test_falls_back_to_fasta_when_no_prepared_database_exists(self, tmp_path):
+        genome = tmp_path / "genome.fa"
+        genome.write_text(">chr1\nACGT\n", encoding="utf-8")
+
+        resolved = resolve_ispcr_database(genome)
+
+        assert resolved.database_path == genome
+        assert resolved.ooc_path is None
+
+
+class TestIsPcrCommand:
+    def test_run_ispcr_batch_uses_resolved_database_and_ooc(
+        self, tmp_path, monkeypatch,
+    ):
+        genome = tmp_path / "hg38.fa"
+        genome.write_text(">chr1\nACGT\n", encoding="utf-8")
+        twobit = tmp_path / "hg38.2bit"
+        twobit.write_bytes(b"")
+        ooc = tmp_path / "hg38.11.ooc"
+        ooc.write_bytes(b"")
+        captured: dict[str, object] = {}
+
+        class Proc:
+            returncode = 0
+            stdout = "chr1\t10\t50\tp1\t0\t+\n"
+            stderr = ""
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["kwargs"] = kwargs
+            return Proc()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        hits = run_ispcr_batch(
+            [{"name": "p1", "fwd": "AAAA", "rev": "TTTT"}],
+            str(genome),
+            tile_size=11,
+        )
+
+        assert hits["p1"][0].start == 10
+        cmd = captured["cmd"]
+        assert cmd[1] == str(twobit)
+        assert "-ooc=" + str(ooc) in cmd
+        assert "-tileSize=11" in cmd
+        assert "-minPerfect=15" in cmd
+        assert "-minGood=15" in cmd
 
 
 class TestStage3Inputs:
@@ -179,6 +255,72 @@ class TestStage3Inputs:
 
 class TestPanelFinalizationRescue:
     """Fast tests for panel finalization rescue specificity inputs."""
+
+    def test_panel_finalize_accepts_argv(self, tmp_path):
+        import primer_panel.panel_finalization as panel_finalization
+
+        input_dir = tmp_path / "input"
+        output_dir = tmp_path / "output"
+        input_dir.mkdir()
+        (input_dir / "primers_specificity.tsv").write_text(
+            "\t".join([
+                "target_id", "primer_rank", "forward_primer", "reverse_primer",
+                "primer3_status", "insilico_status", "primer_pair_penalty",
+            ])
+            + "\n"
+            + "\t".join(["GENE_cds1", "1", "AAA", "TTT", "ok", "unique_pass", "0.1"])
+            + "\n",
+            encoding="utf-8",
+        )
+
+        panel_finalization.main([
+            "--input-dir", str(input_dir),
+            "--output-dir", str(output_dir),
+            "--genome-fasta", str(tmp_path / "genome.fa"),
+        ])
+
+        assert (output_dir / "recommended_primers.tsv").exists()
+
+    def test_panel_finalize_does_not_run_fth1_rescue_by_default(
+        self, tmp_path, monkeypatch,
+    ):
+        import primer_panel.panel_finalization as panel_finalization
+
+        input_dir = tmp_path / "input"
+        output_dir = tmp_path / "output"
+        input_dir.mkdir()
+        (input_dir / "primers_specificity.tsv").write_text(
+            "\t".join([
+                "target_id", "primer_rank", "forward_primer", "reverse_primer",
+                "primer3_status", "insilico_status", "primer_pair_penalty",
+                "insilico_hits",
+            ])
+            + "\n"
+            + "\t".join([
+                "FTH1_cds1_4", "1", "AAA", "TTT", "ok", "multi_hit", "0.1",
+                "chr11:100-200(100);chr2:300-400(100)",
+            ])
+            + "\n",
+            encoding="utf-8",
+        )
+        (input_dir / "target_summary.tsv").write_text(
+            "target_id\ttemplate_chrom\ttemplate_start\nFTH1_cds1_4\tchr11\t100\n",
+            encoding="utf-8",
+        )
+
+        def fail_if_called(*_args, **_kwargs):
+            raise AssertionError("FTH1 rescue should be explicit")
+
+        monkeypatch.setattr(panel_finalization, "rescue_fth1_with_more_primers", fail_if_called)
+        monkeypatch.setattr(panel_finalization, "rescue_fth1_split_targets", fail_if_called)
+
+        panel_finalization.main([
+            "--input-dir", str(input_dir),
+            "--output-dir", str(output_dir),
+            "--genome-fasta", str(tmp_path / "genome.fa"),
+        ])
+
+        assert (output_dir / "rescue_attempts.tsv").exists()
 
     def test_rescue_stage3_uses_saved_primer_coords(
         self, tmp_path, monkeypatch,

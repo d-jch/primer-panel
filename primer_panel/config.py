@@ -71,6 +71,13 @@ class PipelineConfig:
     is_pcr_bin: str = "isPcr"          # path to isPcr binary
     pcr_tolerance: int = 10             # bp tolerance for coordinate matching
 
+    # isPcr database acceleration (all optional; default = auto-discover)
+    ispcr_db: Path | None = None        # explicit .2bit/.nib database path
+    ispcr_ooc: Path | None = None       # explicit overused-tile file path
+    ispcr_tile_size: int = 11           # tileSize for isPcr (default 11)
+    prepare_ispcr_db: bool = False      # create .2bit from FASTA (explicit only)
+    make_ispcr_ooc: bool = False        # create .ooc file (explicit only)
+
     def build_primer3_overrides(self) -> dict[str, str]:
         """Build dict of Primer3 tag overrides from user-specified CLI args.
 

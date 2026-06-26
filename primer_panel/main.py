@@ -189,7 +189,12 @@ def _run_stage3(
     Checks genome-wide specificity for all ok primer pairs in one batch.
     Stage 3 is the ONLY stage that produces genomic product coordinates.
     """
-    from .insilico_pcr import check_ispcr_available, check_specificity_batch
+    from .insilico_pcr import (
+        check_ispcr_available,
+        check_specificity_batch,
+        make_ispcr_ooc,
+        prepare_ispcr_twobit,
+    )
 
     # Check isPcr availability
     if not check_ispcr_available(cfg.is_pcr_bin):
@@ -214,6 +219,22 @@ def _run_stage3(
 
     primer_batch, expected_coords = build_stage3_inputs(all_records, primer_records)
 
+    # Optionally prepare isPcr database files (explicit opt-in only)
+    ispcr_db_path = str(cfg.ispcr_db) if cfg.ispcr_db else None
+    ispcr_ooc_path = str(cfg.ispcr_ooc) if cfg.ispcr_ooc else None
+
+    if cfg.prepare_ispcr_db and cfg.genome_fasta:
+        logger.info("Preparing .2bit database from %s …", cfg.genome_fasta)
+        twobit = prepare_ispcr_twobit(cfg.genome_fasta)
+        ispcr_db_path = str(twobit)
+        logger.info(".2bit database → %s", twobit)
+
+    if cfg.make_ispcr_ooc and ispcr_db_path:
+        logger.info("Creating .ooc file (tileSize=%d) …", cfg.ispcr_tile_size)
+        ooc = make_ispcr_ooc(ispcr_db_path, tile_size=cfg.ispcr_tile_size)
+        ispcr_ooc_path = str(ooc)
+        logger.info(".ooc file → %s", ooc)
+
     # Run batch isPcr (no product-size filtering)
     t0 = time.time()
     specificity_results = check_specificity_batch(
@@ -221,6 +242,9 @@ def _run_stage3(
         genome_fasta=str(cfg.genome_fasta),
         ispcr_bin=cfg.is_pcr_bin,
         tolerance=cfg.pcr_tolerance,
+        ispcr_db=ispcr_db_path,
+        ispcr_ooc=ispcr_ooc_path,
+        tile_size=cfg.ispcr_tile_size,
     )
     elapsed = time.time() - t0
 
@@ -334,6 +358,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     help="Path to isPcr binary (default: isPcr).")
     p.add_argument("--pcr-tolerance", type=int, default=10,
                     help="Bp tolerance for coordinate matching in specificity check (default: 10).")
+    p.add_argument("--ispcr-db", type=Path, default=None,
+                    help="Explicit .2bit/.nib database for isPcr (default: auto-discover alongside genome-fasta).")
+    p.add_argument("--ispcr-ooc", type=Path, default=None,
+                    help="Explicit overused-tile (.ooc) file for isPcr (default: auto-discover).")
+    p.add_argument("--ispcr-tile-size", type=int, default=11,
+                    help="Tile size for isPcr (default: 11).")
+    p.add_argument("--prepare-ispcr-db", action="store_true",
+                    help="Create a .2bit database from the genome FASTA before running isPcr.")
+    p.add_argument("--make-ispcr-ooc", action="store_true",
+                    help="Create an overused-tile (.ooc) file before running isPcr.")
 
     p.add_argument("-v", "--verbose", action="store_true",
                     help="Enable debug logging.")
@@ -377,6 +411,11 @@ def main(argv: list[str] | None = None) -> None:
         check_specificity=args.check_specificity,
         is_pcr_bin=args.is_pcr_bin,
         pcr_tolerance=args.pcr_tolerance,
+        ispcr_db=args.ispcr_db,
+        ispcr_ooc=args.ispcr_ooc,
+        ispcr_tile_size=args.ispcr_tile_size,
+        prepare_ispcr_db=args.prepare_ispcr_db,
+        make_ispcr_ooc=args.make_ispcr_ooc,
     )
 
     cfg.output_dir.mkdir(parents=True, exist_ok=True)

@@ -44,6 +44,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     help="Path to isPcr binary (default: isPcr).")
     p.add_argument("--pcr-tolerance", type=int, default=10,
                     help="Bp tolerance for coordinate matching (default: 10).")
+    p.add_argument("--ispcr-db", type=Path, default=None,
+                    help="Explicit .2bit/.nib database for isPcr (default: auto-discover).")
+    p.add_argument("--ispcr-ooc", type=Path, default=None,
+                    help="Explicit overused-tile (.ooc) file for isPcr (default: auto-discover).")
+    p.add_argument("--ispcr-tile-size", type=int, default=11,
+                    help="Tile size for isPcr (default: 11).")
+    p.add_argument("--prepare-ispcr-db", action="store_true",
+                    help="Create a .2bit database from the genome FASTA before running isPcr.")
+    p.add_argument("--make-ispcr-ooc", action="store_true",
+                    help="Create an overused-tile (.ooc) file before running isPcr.")
     p.add_argument("--product-size", type=str, default=None, metavar="MIN-MAX",
                     help="[DEPRECATED, ignored] Stage 3 does not filter by product size. "
                          "Kept for backward compatibility only.")
@@ -79,7 +89,12 @@ def main(argv: list[str] | None = None) -> None:
         logger.warning("--product-size is deprecated and ignored. "
                         "Stage 3 does not filter hits by product size.")
 
-    from .insilico_pcr import check_ispcr_available, check_specificity_batch
+    from .insilico_pcr import (
+        check_ispcr_available,
+        check_specificity_batch,
+        make_ispcr_ooc,
+        prepare_ispcr_twobit,
+    )
     from .stage3_inputs import build_stage3_inputs_from_target_coords
     from .writers import (
         PrimerRecord,
@@ -157,6 +172,22 @@ def main(argv: list[str] | None = None) -> None:
         primer_records,
     )
 
+    # Optionally prepare isPcr database files (explicit opt-in only)
+    ispcr_db_path = str(args.ispcr_db) if args.ispcr_db else None
+    ispcr_ooc_path = str(args.ispcr_ooc) if args.ispcr_ooc else None
+
+    if args.prepare_ispcr_db:
+        logger.info("Preparing .2bit database from %s …", args.genome_fasta)
+        twobit = prepare_ispcr_twobit(args.genome_fasta)
+        ispcr_db_path = str(twobit)
+        logger.info(".2bit database → %s", twobit)
+
+    if args.make_ispcr_ooc and ispcr_db_path:
+        logger.info("Creating .ooc file (tileSize=%d) …", args.ispcr_tile_size)
+        ooc = make_ispcr_ooc(ispcr_db_path, tile_size=args.ispcr_tile_size)
+        ispcr_ooc_path = str(ooc)
+        logger.info(".ooc file → %s", ooc)
+
     # Run isPcr (no product-size filtering)
     logger.info("Running isPcr on %d primers …", len(primer_batch))
     t0 = time.time()
@@ -165,6 +196,9 @@ def main(argv: list[str] | None = None) -> None:
         genome_fasta=str(args.genome_fasta),
         ispcr_bin=args.is_pcr_bin,
         tolerance=args.pcr_tolerance,
+        ispcr_db=ispcr_db_path,
+        ispcr_ooc=ispcr_ooc_path,
+        tile_size=args.ispcr_tile_size,
     )
     elapsed = time.time() - t0
 
