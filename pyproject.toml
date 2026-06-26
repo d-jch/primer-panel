@@ -2,7 +2,22 @@
 name = "primer-panel"
 version = "0.4.0"
 description = "PCR primer panel pipeline: CDS target generation, Primer3Plus-like primer design, in-silico specificity check"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
+authors = [
+    {name = "d-jch", email = "djch@vip.163.com"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
 dependencies = [
     "requests",
     "primer3plus_core",
