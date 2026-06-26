@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: primer-panel
+Version: 0.4.0
+Summary: PCR primer panel pipeline: CDS target generation, Primer3Plus-like primer design, in-silico specificity check
+Requires-Python: >=3.11
+Requires-Dist: requests
+Requires-Dist: primer3plus_core
+Requires-Dist: primer-target-planner
+Provides-Extra: excel
+Requires-Dist: openpyxl; extra == "excel"
+Provides-Extra: fasta
+Requires-Dist: pyfaidx; extra == "fasta"
+Provides-Extra: test
+Requires-Dist: pytest; extra == "test"

@@ -1,0 +1,12 @@
+requests
+primer3plus_core
+primer-target-planner
+
+[excel]
+openpyxl
+
+[fasta]
+pyfaidx
+
+[test]
+pytest

@@ -1,6 +1,7 @@
 [project]
 name = "primer-panel"
 version = "0.4.0"
+description = "PCR primer panel pipeline: CDS target generation, Primer3Plus-like primer design, in-silico specificity check"
 requires-python = ">=3.11"
 dependencies = [
     "requests",
@@ -12,6 +13,12 @@ dependencies = [
 excel = ["openpyxl"]
 fasta = ["pyfaidx"]
 test = ["pytest"]
+
+[project.scripts]
+primer-panel = "primer_panel.main:main"
+
+[tool.setuptools.packages.find]
+include = ["primer_panel*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
