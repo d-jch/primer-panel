@@ -17,6 +17,8 @@ from primer_panel.insilico_pcr import (
     check_specificity_batch,
     run_ispcr_batch,
 )
+from primer_panel.stage3_inputs import build_stage3_inputs
+from primer_panel.writers import PrimerRecord, TargetRecord
 
 # ──────────────────────────────────────────────────────────────────────
 # Fast tests (always run)
@@ -79,6 +81,175 @@ class TestSpecificityBatchEmpty:
             genome_fasta="/mnt/e/hg38/genome.fa",
         )
         assert results == {}
+
+
+class TestStage3Inputs:
+    """Fast tests for building isPcr batch inputs from Stage 1/2 records."""
+
+    def test_build_stage3_inputs_uses_template_relative_primer_coords(self):
+        target = TargetRecord(
+            gene="GENE",
+            transcript_id="ENST1",
+            selection_reason="canonical",
+            target_id="GENE_cds1",
+            required_chrom="chr1",
+            required_start=100,
+            required_end=200,
+            required_length=100,
+            extended_chrom="chr1",
+            extended_start=90,
+            extended_end=210,
+            extended_length=120,
+            template_chrom="chr1",
+            template_start=1000,
+            template_end=1500,
+            template_length=500,
+            sequence_target_start_0based=50,
+            sequence_target_length=120,
+            sequence_target_for_primer3plus_1based="51,120",
+            strand="+",
+            product_min=2700,
+            product_max=3300,
+            cds_exon_numbers="1",
+            cds_exon_ids="ex1",
+            covered_cds_count=1,
+            cds_exon_coords="100-200",
+            status="template_ok",
+            needs_review=False,
+            sequence_status="real",
+            target_qc_status="ok",
+        )
+        ok_primer = PrimerRecord(
+            target_id="GENE_cds1",
+            primer_rank=2,
+            forward_primer="AAA",
+            reverse_primer="TTT",
+            forward_tm=60.0,
+            reverse_tm=61.0,
+            tm_diff=1.0,
+            forward_gc=50.0,
+            reverse_gc=50.0,
+            primer_pair_penalty=0.1,
+            primer_left_start=10,
+            primer_left_len=20,
+            primer_right_start=210,
+            primer_right_len=20,
+            primer3_product_size=201,
+            primer3_status="ok",
+            primer3_explain="",
+            sequence_target_start_0based=50,
+            sequence_target_length=120,
+        )
+        failed_primer = PrimerRecord(
+            target_id="GENE_cds1",
+            primer_rank=0,
+            forward_primer="",
+            reverse_primer="",
+            forward_tm=0.0,
+            reverse_tm=0.0,
+            tm_diff=0.0,
+            forward_gc=0.0,
+            reverse_gc=0.0,
+            primer_pair_penalty=0.0,
+            primer_left_start=0,
+            primer_left_len=0,
+            primer_right_start=0,
+            primer_right_len=0,
+            primer3_product_size=0,
+            primer3_status="no_primer",
+            primer3_explain="",
+            sequence_target_start_0based=50,
+            sequence_target_length=120,
+        )
+
+        primer_batch, expected_coords = build_stage3_inputs(
+            [target], [ok_primer, failed_primer],
+        )
+
+        assert primer_batch == [{
+            "name": "GENE_cds1_rank2",
+            "fwd": "AAA",
+            "rev": "TTT",
+            "expected_chrom": "chr1",
+            "expected_start": 1010,
+            "expected_end": 1211,
+        }]
+        assert expected_coords == {"GENE_cds1": ("chr1", 90, 210)}
+
+
+class TestPanelFinalizationRescue:
+    """Fast tests for panel finalization rescue specificity inputs."""
+
+    def test_rescue_stage3_uses_saved_primer_coords(
+        self, tmp_path, monkeypatch,
+    ):
+        import panel_finalization
+
+        rescue_primers = tmp_path / "rescue_primers.tsv"
+        rescue_primers.write_text(
+            "\t".join([
+                "target_id", "primer_rank", "forward_primer", "reverse_primer",
+                "forward_tm", "reverse_tm", "primer_pair_penalty",
+                "primer3_product_size", "primer_left_start", "primer_right_start",
+            ])
+            + "\n"
+            + "\t".join([
+                "FTH1_cds1_4", "1", "AAA", "TTT", "60", "61", "0.1",
+                "201", "10", "210",
+            ])
+            + "\n",
+            encoding="utf-8",
+        )
+
+        target_summary = tmp_path / "target_summary.tsv"
+        target_summary.write_text(
+            "\t".join(["target_id", "template_start", "template_chrom"])
+            + "\n"
+            + "\t".join(["FTH1_cds1_4", "1000", "chr11"])
+            + "\n",
+            encoding="utf-8",
+        )
+
+        captured: dict[str, object] = {}
+
+        def fake_check_ispcr_available(_bin):
+            return True
+
+        def fake_check_specificity_batch(primer_pairs, **_kwargs):
+            captured["primer_pairs"] = primer_pairs
+            return {
+                "rescue_rank1": SpecificityResult(
+                    insilico_status="unique_pass",
+                    insilico_hit_count=1,
+                    insilico_hits="chr11:1010-1211(201)",
+                    insilico_best_chrom="chr11",
+                    insilico_best_start=1010,
+                    insilico_best_end=1211,
+                    insilico_best_size=201,
+                    specificity_pass=True,
+                    specificity_explain="single hit matches expected product",
+                )
+            }
+
+        monkeypatch.setattr(
+            "primer_panel.insilico_pcr.check_ispcr_available",
+            fake_check_ispcr_available,
+        )
+        monkeypatch.setattr(
+            "primer_panel.insilico_pcr.check_specificity_batch",
+            fake_check_specificity_batch,
+        )
+
+        result = panel_finalization.run_stage3_on_rescue(
+            rescue_primers,
+            target_summary,
+            tmp_path / "genome.fa",
+            tmp_path,
+        )
+
+        assert result["status"] == "ok"
+        assert captured["primer_pairs"][0]["expected_start"] == 1010
+        assert captured["primer_pairs"][0]["expected_end"] == 1211
 
 
 class TestNoProductSizeFilter:

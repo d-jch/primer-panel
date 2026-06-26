@@ -16,7 +16,7 @@
 
 | 概念 | 定义 | 说明 |
 |------|------|------|
-| **required_region** | CDS exons + `cds-buffer` | 必须被 PCR 产物覆盖的区域 |
+| **required_region** | raw CDS exons | 必须被 PCR 产物覆盖的区域；`--cds-buffer` 已废弃并被忽略 |
 | **extended_target** | required_region 向基因内部扩展到 `--target-size` 下限 | Primer3 的 SEQUENCE_TARGET 区域 |
 | **design_template** | extended_target + `primer-flank` 两侧 | Primer3 的 SEQUENCE_TEMPLATE |
 | **SEQUENCE_TARGET** | extended_target 在 design_template 内的相对坐标 | 传给 Primer3 的 0-based 坐标 |
@@ -28,10 +28,10 @@
 ### 坐标层级示例（HFE_cds1）
 
 ```
-required_region:   chr6:26087410-26087546   136 bp   (CDS exon 1 + cds-buffer)
+required_region:   chr6:26087410-26087546   136 bp   (CDS exon 1)
 extended_target:   chr6:26087410-26090110   2700 bp  (向基因内部扩展到 target-size 下限)
-design_template:   chr6:26086910-26090610   3700 bp  (extended_target + primer-flank 两侧)
-SEQUENCE_TARGET:   500,2700 (0-based)  /  501,2700 (1-based, Primer3Plus 显示)
+design_template:   chr6:26087110-26090410   3300 bp  (extended_target + primer-flank 两侧)
+SEQUENCE_TARGET:   300,2700 (0-based)  /  301,2700 (1-based, Primer3Plus 显示)
 ```
 
 ## 功能概述
@@ -42,7 +42,7 @@ SEQUENCE_TARGET:   500,2700 (0-based)  /  501,2700 (1-based, Primer3Plus 显示)
 - 通过 Ensembl REST API 获取转录本信息
 - 优先选择 MANE Select → MANE Plus Clinical → canonical → 最长 protein-coding 转录本
 - **覆盖 CDS（编码序列），而非完整 exon**；UTR 区域不作为必须覆盖区域
-- CDS 两侧加 `cds-buffer` 作为必须覆盖区间（required interval）
+- 使用原始 CDS 坐标作为必须覆盖区间（required interval）；`--cds-buffer` 保留为兼容参数但不生效
 - 合并相邻 CDS 区间，按 `--target-size` 约束分组生成 target
 - 输出 SEQUENCE_TEMPLATE（FASTA）和 SEQUENCE_TARGET（相对坐标）
 - Stage 1 QC 检查区域构建，不涉及引物
@@ -98,7 +98,7 @@ primer3_core --version
 python -m primer_panel --genes HFE HJV TFR2 SLC40A1 HAMP FTH1 \
     --target-size 2700-3300 \
     --cds-buffer 30 \
-    --primer-flank 500 \
+    --primer-flank 300 \
     --output-dir outputs/test_targets
 ```
 
@@ -108,7 +108,7 @@ python -m primer_panel --genes HFE HJV TFR2 SLC40A1 HAMP FTH1 \
 python -m primer_panel --genes HFE HJV TFR2 SLC40A1 HAMP FTH1 \
     --target-size 2700-3300 \
     --cds-buffer 30 \
-    --primer-flank 500 \
+    --primer-flank 300 \
     --genome-fasta /path/to/hg38.fa \
     --design-primers \
     --check-specificity \
@@ -123,8 +123,8 @@ python -m primer_panel --genes HFE HJV TFR2 SLC40A1 HAMP FTH1 \
 |------|--------|------|
 | `--genes` | (必填) | 基因符号列表 |
 | `--target-size MIN-MAX` | 2700-3300 | Stage 1 target 合并/扩展尺度（bp）。**仅用于 CDS 合并、拆分、扩展，不约束 Primer3 产物大小。** 兼容 `--product-size`。 |
-| `--cds-buffer` | 30 | CDS 两侧各加的缓冲区（bp） |
-| `--primer-flank` | 500 | extended_target 两侧各加的 flank（bp），用于 Primer3 搜索 |
+| `--cds-buffer` | 0 | 已废弃并忽略；required_region 使用原始 CDS 坐标 |
+| `--primer-flank` | 300 | extended_target 两侧各加的 flank（bp），用于 Primer3 搜索 |
 | `--output-dir` | outputs | 输出目录 |
 | `--genome-fasta` | 无 | bgzipped+索引的 hg38 FASTA |
 | `-v / --verbose` | off | 调试日志 |
@@ -261,7 +261,7 @@ python -m primer_panel.insilico_pcr_cli \
 
 ### 靶标生成规则
 
-1. 从 Ensembl 提取 CDS/Translation 区域，每段 CDS 两侧加 `cds-buffer` 作为 required_region
+1. 从 Ensembl 提取 CDS/Translation 区域，使用原始 CDS 坐标作为 required_region（`--cds-buffer` 已废弃并忽略）
 2. 相邻/重叠的 required_region 合并
 3. 合并后区间按 `--target-size` 约束分组：
    - 如果多个 CDS 区间合并后 required_span ≤ `product_max`，则合并以减少扩增次数
@@ -294,7 +294,7 @@ primer_panel/
 ├── ensembl_client.py    # Ensembl REST API 客户端 + CDS 提取
 ├── cds_handler.py       # CDS 必须覆盖区间处理
 ├── exon_handler.py      # 外显子区间处理（遗留）
-├── target_grouper.py    # 靶标分组算法（target-size 约束）
+├── target_planner_adapter.py  # primer-target-planner 适配层
 ├── primer3_runner.py    # Primer3 Boulder IO 运行器（Stage 2, Primer3Plus-like）
 ├── insilico_pcr.py      # UCSC isPcr 封装（Stage 3）
 ├── insilico_pcr_cli.py  # Stage 3 独立 CLI（从已有 primers.tsv 运行）

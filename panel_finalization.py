@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
-import subprocess
 import sys
 import time
 from collections import defaultdict
@@ -152,11 +151,9 @@ def rescue_fth1_with_more_primers(
     from primer_panel.primer3_runner import (
         check_primer3_available,
         run_primer3_for_target,
-        parse_fasta_sequences,
         is_all_n,
     )
-    from primer_panel.writers import build_records
-    from primer_panel.target_grouper import Target
+    from primer_panel.writers import Target, build_records
     from primer_panel.ensembl_client import TranscriptInfo
 
     rescue_output = output_dir / "rescue_fth1"
@@ -200,8 +197,7 @@ def rescue_fth1_with_more_primers(
     cfg = PipelineConfig(
         product_min=2700,
         product_max=3300,
-        cds_buffer=30,
-        primer_flank=500,
+        primer_flank=300,
         genome_fasta=genome_fasta,
         output_dir=rescue_output,
         design_primers=True,
@@ -261,6 +257,7 @@ def rescue_fth1_with_more_primers(
             "target_id", "primer_rank", "forward_primer", "reverse_primer",
             "forward_tm", "reverse_tm", "tm_diff", "forward_gc", "reverse_gc",
             "primer_pair_penalty", "primer3_product_size",
+            "primer_left_start", "primer_left_len", "primer_right_start", "primer_right_len",
         ])
         for r in ok_results:
             writer.writerow([
@@ -269,6 +266,8 @@ def rescue_fth1_with_more_primers(
                 r.forward_tm, r.reverse_tm, r.tm_diff,
                 r.forward_gc, r.reverse_gc,
                 r.primer_pair_penalty, r.primer3_product_size,
+                r.primer_left_start, r.primer_left_len,
+                r.primer_right_start, r.primer_right_len,
             ])
 
     return {
@@ -320,22 +319,21 @@ def run_stage3_on_rescue(
             target_info[row["target_id"]] = row
 
     tgt = target_info.get("FTH1_cds1_4", {})
-    template_start = int(tgt.get("template_start", 0))
     template_chrom = tgt.get("template_chrom", "")
 
     # Build batch
     primer_batch = []
     for p in primers:
-        left_start = int(p["primer_rank"])  # placeholder, use actual coords
-        # Actually we need primer_left_start, but rescue_primers.tsv might not have it
-        # For rescue, we'll use the primer sequences directly
+        template_start = int(tgt.get("template_start", 0))
+        left_start = int(p.get("primer_left_start", 0))
+        right_start = int(p.get("primer_right_start", 0))
         primer_batch.append({
             "name": f"rescue_rank{p['primer_rank']}",
             "fwd": p["forward_primer"],
             "rev": p["reverse_primer"],
             "expected_chrom": template_chrom,
-            "expected_start": 0,  # will match any location
-            "expected_end": 0,
+            "expected_start": template_start + left_start,
+            "expected_end": template_start + right_start + 1,
         })
 
     logger.info("Running isPcr on %d rescue primers …", len(primer_batch))
@@ -354,9 +352,10 @@ def run_stage3_on_rescue(
     unique_pass = []
     multi_hit = []
     no_hit = []
+    primers_by_rank = {p["primer_rank"]: p for p in primers}
     for name, r in results.items():
         rank = int(name.replace("rescue_rank", ""))
-        primer = next((p for p in primers if p["primer_rank"] == str(rank)), None)
+        primer = primers_by_rank.get(str(rank))
         if primer is None:
             continue
 
@@ -407,7 +406,7 @@ def rescue_fth1_split_targets(
     from primer_panel.config import PipelineConfig
     from primer_panel.ensembl_client import EnsemblClient
     from primer_panel.cds_handler import build_required_intervals
-    from primer_panel.target_grouper import group_targets
+    from primer_panel.target_planner_adapter import plan_targets_with_external_planner
     from primer_panel.writers import build_records, write_fasta
     from primer_panel.primer3_runner import (
         check_primer3_available,
@@ -424,8 +423,7 @@ def rescue_fth1_split_targets(
     cfg = PipelineConfig(
         product_min=2700,
         product_max=3300,
-        cds_buffer=30,
-        primer_flank=500,
+        primer_flank=300,
         genome_fasta=genome_fasta,
         output_dir=rescue_dir,
         primer_num_return=50,
@@ -448,14 +446,13 @@ def rescue_fth1_split_targets(
     logger.info("FTH1: %d CDS exons", len(ti.cds_exons))
 
     # Build required intervals
-    required_intervals = build_required_intervals(ti.cds_exons, cfg.cds_buffer)
+    required_intervals = build_required_intervals(ti.cds_exons)
 
-    # Override product_max to 1500 to force splitting into smaller targets
+    # Use a smaller target window to force splitting into smaller targets
     cfg_split = PipelineConfig(
-        product_min=2700,
-        product_max=1500,  # force split
-        cds_buffer=30,
-        primer_flank=500,
+        product_min=1200,
+        product_max=1500,
+        primer_flank=300,
         genome_fasta=genome_fasta,
         output_dir=rescue_dir,
         primer_num_return=50,
@@ -469,16 +466,23 @@ def rescue_fth1_split_targets(
         primer_max_gc=60.0,
     )
 
-    targets = group_targets(required_intervals, cfg_split)
+    gene_req_start = min(ri.start for ri in required_intervals)
+    gene_req_end = max(ri.end for ri in required_intervals)
+    gene_data = client.lookup_gene("FTH1")
+    gene_bounds_start = gene_data.get("start", gene_req_start + 1) - 1
+    gene_bounds_end = gene_data.get("end", gene_req_end)
+    targets = plan_targets_with_external_planner(
+        required_intervals,
+        cfg_split,
+        gene_start=gene_bounds_start,
+        gene_end=gene_bounds_end,
+    )
     logger.info("FTH1 with split: %d targets generated", len(targets))
 
     if len(targets) < 2:
         return {"status": "error", "detail": f"Split produced only {len(targets)} targets, need >= 2"}
 
     # Build records
-    gene_req_start = min(ri.start for ri in required_intervals)
-    gene_req_end = max(ri.end for ri in required_intervals)
-
     records = build_records(
         "FTH1", ti, targets, cfg_split, "real",
         gene_required_start=gene_req_start,

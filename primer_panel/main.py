@@ -5,12 +5,14 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 from pathlib import Path
 
 from .config import PipelineConfig
 from .ensembl_client import EnsemblClient
 from .cds_handler import build_required_intervals
 from .target_planner_adapter import plan_targets_with_external_planner
+from .stage3_inputs import build_stage3_inputs
 from .writers import (
     FailedTarget,
     PrimerRecord,
@@ -210,39 +212,9 @@ def _run_stage3(
         logger.info("No ok primers to check — skipping Stage 3")
         return
 
-    # Build expected_coords from Stage 1 target records (extended_target region)
-    # Used for matching isPcr hits against expected location
-    expected_coords: dict[str, tuple[str, int, int]] = {}
-    for rec in all_records:
-        expected_coords[rec.target_id] = (
-            rec.extended_chrom, rec.extended_start, rec.extended_end,
-        )
-
-    # Build batch input for isPcr
-    # Stage 3 computes genomic product coordinates from template-relative primer coords
-    primer_batch = []
-    for pr in ok_primers:
-        # Find the matching target record for template_start
-        tgt = next((r for r in all_records if r.target_id == pr.target_id), None)
-        if tgt is None:
-            logger.warning("No target record for %s — skipping", pr.target_id)
-            continue
-
-        # Compute expected genomic product coordinates from template-relative coords
-        exp_start = tgt.template_start + pr.primer_left_start
-        exp_end = tgt.template_start + pr.primer_right_start + 1
-
-        primer_batch.append({
-            "name": f"{pr.target_id}_rank{pr.primer_rank}",
-            "fwd": pr.forward_primer,
-            "rev": pr.reverse_primer,
-            "expected_chrom": tgt.template_chrom,
-            "expected_start": exp_start,
-            "expected_end": exp_end,
-        })
+    primer_batch, expected_coords = build_stage3_inputs(all_records, primer_records)
 
     # Run batch isPcr (no product-size filtering)
-    import time
     t0 = time.time()
     specificity_results = check_specificity_batch(
         primer_pairs=primer_batch,
@@ -319,8 +291,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                          "Does NOT constrain Primer3 product size (Stage 2 uses Primer3Plus defaults).")
     p.add_argument("--cds-buffer", type=int, default=0,
                     help="[Deprecated, ignored] CDS buffer is no longer used. Raw CDS exon coordinates are used directly.")
-    p.add_argument("--primer-flank", type=int, default=500,
-                    help="Bp added to each side of extended_target for Primer3 search (default: 500).")
+    p.add_argument("--primer-flank", type=int, default=300,
+                    help="Bp added to each side of extended_target for Primer3 search (default: 300).")
     p.add_argument("--genome-fasta", type=Path, default=None,
                     help="Path to bgzipped+indexed hg38 FASTA for real sequence extraction.")
 

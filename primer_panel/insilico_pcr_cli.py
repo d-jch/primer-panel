@@ -80,6 +80,7 @@ def main(argv: list[str] | None = None) -> None:
                         "Stage 3 does not filter hits by product size.")
 
     from .insilico_pcr import check_ispcr_available, check_specificity_batch
+    from .stage3_inputs import build_stage3_inputs_from_target_coords
     from .writers import (
         PrimerRecord,
         build_specificity_records,
@@ -151,31 +152,10 @@ def main(argv: list[str] | None = None) -> None:
         logger.warning("No ok primers found — nothing to check")
         return
 
-    # Build batch input
-    # Stage 3 computes genomic product coordinates from template-relative primer coords
-    primer_batch = []
-    for pr in ok_primers:
-        tgt = target_coords.get(pr.target_id, {})
-        template_start = tgt.get("template_start", 0)
-        template_chrom = tgt.get("template_chrom", "")
-
-        # Compute expected genomic product coordinates
-        exp_start = template_start + pr.primer_left_start
-        exp_end = template_start + pr.primer_right_start + 1
-
-        primer_batch.append({
-            "name": f"{pr.target_id}_rank{pr.primer_rank}",
-            "fwd": pr.forward_primer,
-            "rev": pr.reverse_primer,
-            "expected_chrom": template_chrom,
-            "expected_start": exp_start,
-            "expected_end": exp_end,
-        })
-
-    # Build expected_coords for specificity records
-    expected_coords: dict[str, tuple[str, int, int]] = {}
-    for tid, tc in target_coords.items():
-        expected_coords[tid] = (tc["extended_chrom"], tc["extended_start"], tc["extended_end"])
+    primer_batch, expected_coords = build_stage3_inputs_from_target_coords(
+        target_coords,
+        primer_records,
+    )
 
     # Run isPcr (no product-size filtering)
     logger.info("Running isPcr on %d primers …", len(primer_batch))

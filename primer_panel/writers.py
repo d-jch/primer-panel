@@ -2,7 +2,7 @@
 
 Conceptual layers
 -----------------
-required_region  : CDS exons + cds_buffer — must be covered by the amplicon.
+required_region  : raw CDS exons — must be covered by the amplicon.
 extended_target  : required_region extended toward gene interior to product_min
                    (only when required_region < product_min).
 design_template  : extended_target + primer_flank on each side — given to Primer3.
@@ -13,14 +13,17 @@ from __future__ import annotations
 
 import csv
 import logging
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .config import PipelineConfig
-from .ensembl_client import TranscriptInfo
 from .cds_handler import CdsRequiredInterval
 from .primer3_runner import PrimerResult
+
+if TYPE_CHECKING:
+    from .ensembl_client import TranscriptInfo
 
 
 @dataclass
@@ -409,7 +412,11 @@ def _write_fasta_real(
         for r in records:
             try:
                 seq = str(genome[r.template_chrom][r.template_start:r.template_end])
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "Cannot extract sequence for %s (%s:%d-%d): %s; using Ns",
+                    r.target_id, r.template_chrom, r.template_start, r.template_end, exc,
+                )
                 seq = "N" * r.template_length
             fh.write(
                 f">{r.target_id} "
@@ -489,16 +496,16 @@ def build_records(
 ) -> list[TargetRecord]:
     """Convert internal targets to flat TargetRecord list.
 
-    For each target (whose start/end = required_region from CDS+buffer):
+    For each target (whose start/end = required_region from raw CDS):
 
-    1. required_region = original CDS+buffer coordinates (unchanged).
+    1. required_region = original CDS coordinates (unchanged).
     2. If required_length < product_min, extend toward gene interior to
        reach product_min → extended_target.
     3. Add primer_flank on both sides of the extended target → design_template.
     4. Clamp start to >= 0.
     5. Compute SEQUENCE_TARGET relative coordinates for Primer3.
 
-    The ``required_*`` fields in the output reflect the original CDS+buffer
+    The ``required_*`` fields in the output reflect the original CDS
     coordinates.  ``template_*`` fields reflect the final design_template
     given to Primer3.
     """
@@ -712,6 +719,10 @@ def write_qc_summary(
         ok_pairs = sum(1 for pr in primer_records if pr.primer3_status == "ok")
         lines.append(f"primer_ok_pair_count\t{ok_pairs}")
 
+        records_by_target: dict[str, list[PrimerRecord]] = defaultdict(list)
+        for pr in primer_records:
+            records_by_target[pr.target_id].append(pr)
+
         # Per-target analysis
         per_target_ok: dict[str, int] = {}
         per_target_best_size: dict[str, int] = {}
@@ -719,7 +730,7 @@ def write_qc_summary(
         per_target_reason: dict[str, str] = {}
 
         for tid in all_tids:
-            tid_records = [pr for pr in primer_records if pr.target_id == tid]
+            tid_records = records_by_target[tid]
             ok_recs = [pr for pr in tid_records if pr.primer3_status == "ok"]
             per_target_ok[tid] = len(ok_recs)
             if ok_recs:

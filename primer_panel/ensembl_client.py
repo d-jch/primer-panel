@@ -6,8 +6,6 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-import requests
-
 from .config import PipelineConfig
 
 logger = logging.getLogger(__name__)
@@ -73,6 +71,14 @@ class EnsemblClient:
     """Thin wrapper around Ensembl REST /lookup endpoints."""
 
     def __init__(self, cfg: PipelineConfig) -> None:
+        try:
+            import requests
+        except ImportError as exc:
+            raise RuntimeError(
+                "The 'requests' package is required for Ensembl API access. "
+                "Install it before running the primer panel pipeline."
+            ) from exc
+
         self.cfg = cfg
         self.session = requests.Session()
         self.session.headers.update({"Content-Type": "application/json"})

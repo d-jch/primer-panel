@@ -1,3 +1,18 @@
+[project]
+name = "primer-panel"
+version = "0.4.0"
+requires-python = ">=3.11"
+dependencies = [
+    "requests",
+    "primer3plus_core",
+    "primer-target-planner",
+]
+
+[project.optional-dependencies]
+excel = ["openpyxl"]
+fasta = ["pyfaidx"]
+test = ["pytest"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

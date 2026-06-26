@@ -1,7 +1,7 @@
-"""Adapter: bridge cds_handler output → primer-target-planner → v1 Target.
+"""Adapter: bridge cds_handler output → primer-target-planner → Target.
 
 Converts CdsRequiredInterval → RequiredInterval, calls plan_targets(),
-converts TargetWindow → target_grouper.Target for build_records() compatibility.
+converts TargetWindow → writers.Target for build_records() compatibility.
 """
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ def plan_targets_with_external_planner(
         gene_end: Gene-level end (from Ensembl gene span). If None, uses max of intervals.
 
     Returns:
-        List of v1 Target objects (from target_grouper module).
+        List of Target objects consumed by writers.build_records().
     """
     if not required_intervals:
         return []

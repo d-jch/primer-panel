@@ -10,9 +10,6 @@ import json
 import re
 from pathlib import Path
 
-from primer3plus_core import boulder as p3p_boulder
-from primer3plus_core import settings as p3p_settings
-
 # Tags to ignore (Primer3Plus internal / UI-only / handled separately)
 _IGNORE_TAGS = {
     "PRIMER_EXPLAIN_FLAG",
@@ -45,6 +42,32 @@ _REMOVE_IF_EMPTY = {
 }
 
 
+def _load_default_settings_text() -> str:
+    try:
+        from primer3plus_core import settings as p3p_settings
+    except ImportError as exc:
+        raise RuntimeError(
+            "The 'primer3plus_core' package is required for Stage 2. "
+            "Install it so the bundled default_settings file can be used."
+        ) from exc
+    return p3p_settings.load_default_settings()
+
+
+def _prepare_boulder_input(raw_input: str) -> str:
+    try:
+        from primer3plus_core import boulder as p3p_boulder
+    except ImportError as exc:
+        raise RuntimeError(
+            "The 'primer3plus_core' package is required to prepare Primer3 input."
+        ) from exc
+
+    # Our tag filtering already removes thermo paths and empty mispriming
+    # library tags. Calling prepare_input() on Windows can fail because the
+    # package injects backslash paths via re.sub replacement strings.
+    text = p3p_boulder.normalize_newlines(raw_input)
+    return p3p_boulder.strip_thermo_path(text)
+
+
 def load_settings_dict(settings_file: Path | None = None) -> dict[str, str]:
     """Load Primer3Plus settings as a flat {tag: value} dict.
 
@@ -56,7 +79,7 @@ def load_settings_dict(settings_file: Path | None = None) -> dict[str, str]:
         Flat dict of Primer3 tag → string value (only "def" entries).
     """
     if settings_file is None:
-        raw = p3p_settings.load_default_settings()
+        raw = _load_default_settings_text()
     else:
         raw = settings_file.read_text(encoding="utf-8")
 
@@ -124,9 +147,11 @@ def build_primer3plus_input(
     """
     settings = load_settings_dict(settings_file)
 
-    # Determine first_base_index
     if first_base_index is None:
-        first_base_index = get_first_base_index(settings_file, overrides)
+        if overrides and "PRIMER_FIRST_BASE_INDEX" in overrides:
+            first_base_index = int(overrides["PRIMER_FIRST_BASE_INDEX"])
+        else:
+            first_base_index = int(settings.get("PRIMER_FIRST_BASE_INDEX", "1"))
 
     # Clean template
     sequence_template = re.sub(r"[^ACGTNacgtn]", "", sequence_template).upper()
@@ -195,6 +220,6 @@ def build_primer3plus_input(
 
     raw_input = "\n".join(lines) + "\n"
 
-    # Let primer3plus-core do its preparation (strip thermo path, inject mispriming libs)
-    prepared = p3p_boulder.prepare_input(raw_input)
+    # Let primer3plus-core do its preparation when available.
+    prepared = _prepare_boulder_input(raw_input)
     return prepared, first_base_index

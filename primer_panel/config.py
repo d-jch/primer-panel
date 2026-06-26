@@ -12,7 +12,7 @@ class PipelineConfig:
 
     Conceptual layers
     -----------------
-    required_region  : CDS exons + cds_buffer — must be covered by the amplicon.
+    required_region  : raw CDS exons — must be covered by the amplicon.
     extended_target  : required_region extended toward gene interior to product_min
                        (only when required_region is shorter than product_min).
     design_template  : extended_target + primer_flank on each side — given to Primer3.
@@ -24,18 +24,18 @@ class PipelineConfig:
     product_min: int = 2700           # minimum PCR product length (bp)
     product_max: int = 3300           # maximum PCR product length (bp)
 
-    # --- CDS buffer (deprecated, no longer used) ---
+    # --- CDS buffer (deprecated compatibility field; no longer used) ---
     cds_buffer: int = 0
 
     # --- primer flank (design_template extension beyond extended_target) ---
-    primer_flank: int = 500           # bp added to each side of extended_target for Primer3 search
+    primer_flank: int = 300           # bp added to each side of extended_target for Primer3 search
 
     # --- tiling overlap for oversized required intervals ---
     tile_overlap: int = 200           # bp overlap between tiled targets for a single oversized interval
 
     # --- Ensembl API ---
     ensembl_base: str = "https://rest.ensembl.org"
-    api_timeout: int = 30            # seconds per request
+    api_timeout: int = 60            # seconds per request
 
     # --- sequence source ---
     genome_fasta: Path | None = None # path to bgzipped+indexed hg38 FASTA (optional)
