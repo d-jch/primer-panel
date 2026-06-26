@@ -5,6 +5,7 @@ from pathlib import Path
 
 from primer_panel.config import PipelineConfig
 from primer_panel.writers import (
+    Target,
     TargetRecord,
     _directional_extend,
     build_records,
@@ -17,7 +18,6 @@ from primer_panel.primer3_runner import (
     _extract_primers,
     _parse_boulder_output,
 )
-from primer_panel.target_grouper import Target
 from primer_panel.ensembl_client import TranscriptInfo, CdsExon
 
 

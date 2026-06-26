@@ -14,14 +14,39 @@ from __future__ import annotations
 import csv
 import logging
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import PipelineConfig
 from .ensembl_client import TranscriptInfo
 from .cds_handler import CdsRequiredInterval
-from .target_grouper import Target
 from .primer3_runner import PrimerResult
+
+
+@dataclass
+class Target:
+    """A PCR target region covering one or more CDS required intervals.
+
+    ``start`` / ``end`` define the **required_region** — the genomic interval
+    that must be covered by any valid PCR product.  Downstream in build_records(),
+    short required_regions are extended toward gene interior (→ extended_target)
+    and then padded with primer_flank (→ design_template) for Primer3.
+    """
+
+    chrom: str
+    start: int
+    end: int
+    strand: int
+    needs_review: bool = False
+    status: str = "ok"
+    tiled: bool = False
+    cds_exon_numbers: list[int] = field(default_factory=list)
+    cds_exon_ids: list[str] = field(default_factory=list)
+    cds_exon_coords: list[tuple[int, int]] = field(default_factory=list)
+
+    @property
+    def length(self) -> int:
+        return self.end - self.start
 
 logger = logging.getLogger(__name__)
 

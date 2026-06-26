@@ -10,8 +10,6 @@ from pathlib import Path
 from .config import PipelineConfig
 from .ensembl_client import EnsemblClient
 from .cds_handler import build_required_intervals
-from .target_grouper import group_targets as group_targets_v1
-from .target_grouper_v2 import RequiredRegion, group_targets as group_targets_v2, to_v1_targets
 from .target_planner_adapter import plan_targets_with_external_planner
 from .writers import (
     FailedTarget,
@@ -365,9 +363,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--pcr-tolerance", type=int, default=10,
                     help="Bp tolerance for coordinate matching in specificity check (default: 10).")
 
-    p.add_argument("--target-grouper-version", choices=["planner", "v2", "v1"], default="planner",
-                    help="Target grouping algorithm: planner (default, primer-target-planner package), "
-                         "v2 (internal sliding-window), or v1 (legacy).")
     p.add_argument("-v", "--verbose", action="store_true",
                     help="Enable debug logging.")
     return p.parse_args(argv)
@@ -390,7 +385,6 @@ def main(argv: list[str] | None = None) -> None:
         primer_flank=args.primer_flank,
         genome_fasta=args.genome_fasta,
         output_dir=args.output_dir,
-        target_grouper_version=args.target_grouper_version,
         # Primer3 config
         design_primers=args.design_primers,
         primer3_bin=args.primer3_bin,
@@ -453,36 +447,15 @@ def main(argv: list[str] | None = None) -> None:
         gene_req_start = min(ri.start for ri in required_intervals)
         gene_req_end = max(ri.end for ri in required_intervals)
 
-        # Generate targets using selected grouper version
-        if cfg.target_grouper_version == "planner":
-            # Use Ensembl gene bounds for correct terminal_reverse logic
-            gene_data = client.lookup_gene(gene)
-            gene_bounds_start = gene_data.get("start", gene_req_start + 1) - 1  # 1-based → 0-based
-            gene_bounds_end = gene_data.get("end", gene_req_end)
-            targets = plan_targets_with_external_planner(
-                required_intervals, cfg,
-                gene_start=gene_bounds_start, gene_end=gene_bounds_end,
-            )
-            logger.info("%s: %d targets generated (primer-target-planner)", gene, len(targets))
-        elif cfg.target_grouper_version == "v2":
-            v2_regions = [
-                RequiredRegion(
-                    chrom=ri.chrom, start=ri.start, end=ri.end, strand=ri.strand,
-                    cds_exon_numbers=[c.cds_exon_number for c in ri.cds_exons],
-                    cds_exon_ids=[c.cds_exon_id for c in ri.cds_exons],
-                    cds_exon_coords=[(c.start, c.end) for c in ri.cds_exons],
-                )
-                for ri in required_intervals
-            ]
-            v2_targets = group_targets_v2(
-                v2_regions, product_min=cfg.product_min, product_max=cfg.product_max,
-                tile_overlap=cfg.tile_overlap,
-            )
-            targets = to_v1_targets(v2_targets)
-            logger.info("%s: %d targets generated (v2 grouper)", gene, len(targets))
-        else:
-            targets = group_targets_v1(required_intervals, cfg)
-            logger.info("%s: %d targets generated (v1 grouper)", gene, len(targets))
+        # Generate targets using primer-target-planner
+        gene_data = client.lookup_gene(gene)
+        gene_bounds_start = gene_data.get("start", gene_req_start + 1) - 1  # 1-based → 0-based
+        gene_bounds_end = gene_data.get("end", gene_req_end)
+        targets = plan_targets_with_external_planner(
+            required_intervals, cfg,
+            gene_start=gene_bounds_start, gene_end=gene_bounds_end,
+        )
+        logger.info("%s: %d targets generated", gene, len(targets))
 
         # Build output records (computes design_template with dynamic extension)
         seq_status = "placeholder"  # updated by write_fasta
@@ -572,10 +545,6 @@ def main(argv: list[str] | None = None) -> None:
     # --- QC summary ---
     qc_path = cfg.output_dir / "run_summary.txt"
     write_qc_summary(all_records, all_failed, primer_records, cfg, qc_path)
-
-    # Append grouper version to summary
-    with open(qc_path, "a") as f:
-        f.write(f"target_grouper_version\t{cfg.target_grouper_version}\n")
 
     logger.info("QC summary → %s", qc_path)
 

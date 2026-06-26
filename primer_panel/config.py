@@ -43,9 +43,6 @@ class PipelineConfig:
     # --- output ---
     output_dir: Path = field(default_factory=lambda: Path("outputs"))
 
-    # --- target grouper version ---
-    target_grouper_version: str = "v2"  # "v2" (default) or "v1"
-
     # --- Primer3 (Stage 2) ---
     design_primers: bool = False       # enable Primer3 design
     primer3_bin: str = "primer3_core"  # path to primer3_core binary

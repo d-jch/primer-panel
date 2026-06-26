@@ -47,8 +47,8 @@ def _interval_to_required(ri: CdsRequiredInterval) -> ptp.RequiredInterval:
 
 def _target_to_v1(tw: ptp.TargetWindow, interval_map: dict[str, CdsRequiredInterval],
                    chrom: str, strand: int) -> Any:
-    """Convert TargetWindow to v1 Target (from target_grouper module)."""
-    from .target_grouper import Target
+    """Convert TargetWindow to Target (for build_records)."""
+    from .writers import Target
 
     # Collect CDS info from covered intervals
     all_exon_nums: list[int] = []
