@@ -1,0 +1,7 @@
+outputs/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.xlsx
+HCC.fa
+HCC.xlsx
