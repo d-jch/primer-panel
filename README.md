@@ -16,46 +16,80 @@ The pipeline targets CDS regions, not full exons or UTRs. Stage 1 creates the
 template and `SEQUENCE_TARGET`; Stage 2 records Primer3 design metrics; Stage 3
 is the only stage that reports genomic PCR product coordinates.
 
-## Install
+## Recommended Installation
 
-Create an environment with the required Python and bioinformatics tools:
+**Primer Panel does not bundle `primer3_core` or UCSC `isPcr` binaries.**
+These tools have separate licenses and platform-specific build requirements.
+Install them via micromamba/conda or a container runtime.
+
+### Create the environment (recommended)
 
 ```bash
+# Create environment with all tools
 micromamba create -n primer_panel -c conda-forge -c bioconda \
-  python=3.11 requests openpyxl pyfaidx primer3 -y
+  python=3.11 primer3 ucsc-ispcr ucsc-fatotwobit \
+  requests openpyxl pyfaidx -y
 
 micromamba activate primer_panel
+
+# Install primer-panel itself
+pip install primer-panel
+```
+
+Or for development:
+
+```bash
 pip install -e .
 ```
 
-Check the CLI entry points:
+### Verify installation
 
 ```bash
-primer-panel --help
-primer-panel-finalize --help
+# Check everything is in order
+primer-panel --doctor
+
+# Or check individual tools
 primer3_core --version
+isPcr
+faToTwoBit
 ```
 
-Optional tools:
+### Tool summary
 
-- `pyfaidx`: required when extracting real sequence from a genome FASTA.
-- `openpyxl`: enables XLSX output.
-- UCSC `isPcr`: required for Stage 3 specificity checks.
-- UCSC `faToTwoBit`: only needed if you want to create `.2bit` databases.
+| Tool | Stage | Install | Required? |
+| --- | --- | --- | --- |
+| `primer3_core` | 2 (primer design) | `micromamba install -c bioconda primer3` | For Stage 2+ |
+| `isPcr` | 3 (specificity) | `micromamba install -c bioconda ucsc-ispcr` | For Stage 3 |
+| `faToTwoBit` | 3 (db prep) | `micromamba install -c bioconda ucsc-fatotwobit` | Optional |
+| `pyfaidx` | 1 (sequences) | `pip install pyfaidx` | For real sequences |
+| `openpyxl` | any (XLSX) | `pip install openpyxl` | Optional |
+
+### Alternative: Docker / Apptainer
+
+For containerized environments, you can build an image that includes all
+bioinformatics tools.  This avoids platform-specific binary issues:
+
+```dockerfile
+FROM mambaorg/micromamba:latest
+RUN micromamba install -y -c conda-forge -c bioconda \
+    python=3.11 primer3 ucsc-ispcr ucsc-fatotwobit \
+    requests openpyxl pyfaidx && \
+    micromamba clean -afy
+RUN pip install primer-panel
+```
 
 ## Quick Start
 
-Generate Stage 1 target files without designing primers:
+Run only Stage 1 (target coordinates, no primer design):
 
 ```bash
 primer-panel \
   --genes HFE HJV TFR2 SLC40A1 HAMP FTH1 \
-  --target-size 2700-3300 \
-  --primer-flank 500 \
+  --stage targets \
   --output-dir outputs/hcc6_targets
 ```
 
-Run the full pipeline with primer design and specificity checks:
+Run the full pipeline (Stage 1+2+3, this is the default when no `--stage` is given):
 
 ```bash
 primer-panel \
@@ -63,8 +97,31 @@ primer-panel \
   --target-size 2700-3300 \
   --primer-flank 500 \
   --genome-fasta /path/to/hg38.fa \
-  --design-primers \
-  --check-specificity \
+  --output-dir outputs/hcc6_primers
+```
+
+> **Note:** The default stage is `all` (Stage 1+2+3).  `--genome-fasta` is
+> required because Stage 2 needs real sequences for Primer3 and Stage 3 needs
+> the genome for specificity checks.  If you only want target coordinates, use
+> `--stage targets`.
+
+Run Stage 1+2 (targets + primer design, no specificity check):
+
+```bash
+primer-panel \
+  --genes HFE HJV TFR2 SLC40A1 HAMP FTH1 \
+  --stage design \
+  --genome-fasta /path/to/hg38.fa \
+  --output-dir outputs/hcc6_primers
+```
+
+Annotate primers with common dbSNP variants:
+
+```bash
+primer-panel \
+  --genes HFE HJV TFR2 SLC40A1 HAMP FTH1 \
+  --genome-fasta /path/to/hg38.fa \
+  --common-dbsnp-bed /path/to/common_snps.bed \
   --output-dir outputs/hcc6_primers
 ```
 
@@ -82,11 +139,16 @@ primer-panel-finalize \
 | Option | Default | Description |
 | --- | --- | --- |
 | `--genes` | required | Gene symbols to process. |
+| `--stage STAGE` | `all` | Pipeline stage: `targets`, `design`, `specificity`, or `all`. Default runs full pipeline (requires `--genome-fasta`). |
 | `--target-size MIN-MAX` | `2700-3300` | Stage 1 CDS grouping and target extension size. This does not constrain Primer3 product size. |
 | `--primer-flank N` | `300` | Bases added on both sides of each target for primer search. |
-| `--genome-fasta PATH` | none | hg38 FASTA used for real sequence extraction and specificity checks. |
-| `--design-primers` | off | Enable Primer3 primer design. |
-| `--check-specificity` | off | Enable UCSC `isPcr` specificity checks. Requires `--design-primers`. |
+| `--genome-fasta PATH` | required for full pipeline | hg38 FASTA used for real sequence extraction and specificity checks. |
+| `--annotation-gtf PATH` | none | Local Ensembl GTF for offline annotation (replaces Ensembl REST API). |
+| `--annotation-source` | `auto` | Annotation source: `auto`, `ensembl-api`, or `gtf`. |
+| `--common-dbsnp-bed PATH` | none | Common dbSNP BED file for primer risk annotation. |
+| `--doctor` | off | Run dependency checks and exit. |
+| `--design-primers` | off | [Deprecated] Use `--stage` instead. |
+| `--check-specificity` | off | [Deprecated] Use `--stage` instead. |
 | `--primer3-bin PATH` | `primer3_core` | Primer3 executable. |
 | `--is-pcr-bin PATH` | `isPcr` | UCSC `isPcr` executable. |
 | `--ispcr-db PATH` | auto | Explicit `.2bit`/`.nib` database for isPcr. |
@@ -247,6 +309,69 @@ Stage 3 reports one of these statuses for each primer pair:
 | `multi_hit` | Multiple genome-wide products. |
 | `no_hit` | No product detected. |
 | `pcr_error` | `isPcr` failed for the batch. |
+
+## Dependency Doctor
+
+Check your environment for required tools and files:
+
+```bash
+primer-panel --doctor
+```
+
+This reports:
+
+- `primer3_core` — found / missing
+- `isPcr` — found / missing
+- `faToTwoBit` — found / missing (optional)
+- genome FASTA — provided and exists / not provided
+- common dbSNP BED — provided and exists / not provided
+
+The `--doctor` flag does **not** require `--genes` and does not run any
+pipeline stage.
+
+## Offline / Cached Annotation with Ensembl GTF
+
+By default, Stage 1 queries the Ensembl REST API for transcript and CDS
+annotation.  To avoid network access (or to pin a specific annotation
+release), you can provide a local Ensembl GTF file:
+
+```bash
+primer-panel \
+  --genes HFE HJV TFR2 \
+  --stage targets \
+  --annotation-gtf /path/to/Homo_sapiens.GRCh38.110.gtf.gz \
+  --output-dir outputs/offline_run
+```
+
+The GTF must be an Ensembl-format GTF (plain or gzip-compressed).  Both
+`gene_name` and `gene_id` lookups are supported.
+
+### Combining GTF with genome FASTA
+
+GTF provides annotation (coordinates), not sequence.  For the full pipeline
+you still need `--genome-fasta`:
+
+```bash
+primer-panel \
+  --genes HFE HJV TFR2 \
+  --annotation-gtf /path/to/Homo_sapiens.GRCh38.110.gtf.gz \
+  --genome-fasta /path/to/hg38.fa \
+  --output-dir outputs/full_offline
+```
+
+### Assembly / release consistency
+
+Use GTF and FASTA from the same Ensembl release (e.g. both GRCh38.110).
+Mixing releases may cause coordinate mismatches.
+
+### Transcript selection priority
+
+When using a GTF, transcript selection follows the same priority as the
+Ensembl API mode:
+
+1. `MANE_Select` tag
+2. `Ensembl_canonical` tag
+3. Longest CDS among `protein_coding` transcripts
 
 ## Development
 

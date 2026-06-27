@@ -393,6 +393,20 @@ class TestPanelFinalizationRescue:
         assert captured["primer_pairs"][0]["expected_start"] == 1010
         assert captured["primer_pairs"][0]["expected_end"] == 1211
 
+    def test_fth1_multi_hit_uses_expected_target_coordinates(self):
+        import primer_panel.panel_finalization as panel_finalization
+
+        result = panel_finalization.analyze_fth1_multi_hit([{
+            "target_id": "FTH1_cds1_4",
+            "insilico_hits": "chr11:61966152-61969100(2948);chr2:300-400(100)",
+            "expected_target_chrom": "chr11",
+            "expected_target_start": "61965152",
+            "expected_target_end": "61970152",
+        }])
+
+        assert (61966152, 61969100, 2948) in result["expected_hits"]
+        assert result["off_target_by_chrom"] == {"chr2": [(300, 400, 100)]}
+
 
 class TestNoProductSizeFilter:
     """Stage 3 should NOT filter hits by product size."""
