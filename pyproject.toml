@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "primer-panel"
-version = "0.4.0"
+dynamic = ["version"]
 description = "PCR primer panel pipeline: CDS target generation, Primer3Plus-like primer design, in-silico specificity check"
 readme = "README.md"
 license = "MIT"
@@ -15,7 +15,6 @@ authors = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -39,6 +38,9 @@ primer-panel-finalize = "primer_panel.panel_finalization:main"
 
 [tool.setuptools.packages.find]
 include = ["primer_panel*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "primer_panel.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

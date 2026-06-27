@@ -78,6 +78,13 @@ class PipelineConfig:
     prepare_ispcr_db: bool = False      # create .2bit from FASTA (explicit only)
     make_ispcr_ooc: bool = False        # create .ooc file (explicit only)
 
+    # Common dbSNP annotation (optional)
+    common_dbsnp_bed: Path | None = None  # path to common dbSNP BED file
+
+    # --- Local annotation (Stage 1) ---
+    annotation_gtf: Path | None = None      # local Ensembl GTF for offline annotation
+    annotation_source: str = "auto"         # "auto", "ensembl-api", or "gtf"
+
     def build_primer3_overrides(self) -> dict[str, str]:
         """Build dict of Primer3 tag overrides from user-specified CLI args.
 

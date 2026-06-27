@@ -81,9 +81,26 @@ def select_recommended(rows: list[dict]) -> tuple[list[dict], list[str]]:
 # FTH1 rescue analysis
 # ----------------------------------------------------------------------
 
-def analyze_fth1_multi_hit(rows: list[dict]) -> dict:
+def _parse_optional_int(value: object) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def analyze_fth1_multi_hit(rows: list[dict], expected_tolerance: int = 1000) -> dict:
     """Analyze FTH1_cds1_4 multi-hit pattern."""
     fth1_rows = [r for r in rows if r["target_id"] == "FTH1_cds1_4"]
+
+    expected_intervals = []
+    for row in fth1_rows:
+        chrom = row.get("expected_target_chrom", "")
+        start = _parse_optional_int(row.get("expected_target_start"))
+        end = _parse_optional_int(row.get("expected_target_end"))
+        if chrom and start is not None and end is not None:
+            expected_intervals.append((chrom, start, end))
 
     # Collect all unique hit locations
     all_locations: dict[str, set] = defaultdict(set)  # chrom -> set of (start, end, size)
@@ -102,13 +119,24 @@ def analyze_fth1_multi_hit(rows: list[dict]) -> dict:
             except ValueError:
                 continue
 
-    # Separate expected (chr11 near 61964652) from off-targets
+    def is_expected_hit(chrom: str, start: int, end: int) -> bool:
+        if expected_intervals:
+            return any(
+                hit_chrom == chrom
+                and start <= interval_end + expected_tolerance
+                and end >= interval_start - expected_tolerance
+                for hit_chrom, interval_start, interval_end in expected_intervals
+            )
+
+        return chrom == "chr11" and abs(start - 61964652) < expected_tolerance
+
+    # Separate expected locus hits from off-targets.
     expected_hits = set()
     off_target_by_chrom: dict[str, list] = defaultdict(list)
 
     for chrom, locs in all_locations.items():
         for start, end, size in sorted(locs):
-            if chrom == "chr11" and abs(start - 61964652) < 1000:
+            if is_expected_hit(chrom, start, end):
                 expected_hits.add((start, end, size))
             else:
                 off_target_by_chrom[chrom].append((start, end, size))
@@ -609,6 +637,10 @@ def write_recommended_primers(recommended: list[dict], output_dir: Path) -> None
         "primer_pair_penalty", "primer3_product_size",
         "insilico_best_chrom", "insilico_best_start", "insilico_best_end",
         "insilico_best_size", "insilico_hit_count", "specificity_explain",
+        # Common dbSNP annotation columns
+        "common_snp_risk", "left_primer_common_snp_count",
+        "right_primer_common_snp_count", "left_primer_3p_common_snp_count",
+        "right_primer_3p_common_snp_count", "common_snp_hits",
     ]
 
     tsv_path = output_dir / "recommended_primers.tsv"

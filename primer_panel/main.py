@@ -11,8 +11,17 @@ from pathlib import Path
 from .config import PipelineConfig
 from .ensembl_client import EnsemblClient
 from .cds_handler import build_required_intervals
+from .preflight import (
+    preflight_genome_fasta,
+    preflight_prepare_ispcr_db,
+    preflight_stage2,
+    preflight_stage3,
+    print_doctor_report,
+    run_doctor,
+)
 from .target_planner_adapter import plan_targets_with_external_planner
 from .stage3_inputs import build_stage3_inputs
+from .variant_annotation import load_dbsnp_bed, annotate_primer_pair
 from .writers import (
     FailedTarget,
     PrimerRecord,
@@ -53,13 +62,8 @@ def _run_stage2(all_records: list[TargetRecord], cfg: PipelineConfig) -> list:
         run_primer3_for_target,
     )
 
-    # Check Primer3 availability
-    if not check_primer3_available(cfg.primer3_bin):
-        logger.error(
-            "%s not found; install primer3 in the primer_panel environment "
-            "or pass --primer3-bin", cfg.primer3_bin
-        )
-        sys.exit(1)
+    # Check Primer3 availability (preflight)
+    preflight_stage2(cfg)
 
     # Load FASTA sequences (design_template sequences)
     fa_path = cfg.output_dir / "targets.fa"
@@ -196,18 +200,8 @@ def _run_stage3(
         prepare_ispcr_twobit,
     )
 
-    # Check isPcr availability
-    if not check_ispcr_available(cfg.is_pcr_bin):
-        logger.error(
-            "%s not found; install UCSC Kent tools in the primer_panel "
-            "environment or pass --is-pcr-bin", cfg.is_pcr_bin
-        )
-        sys.exit(1)
-
-    # Check genome FASTA availability
-    if not cfg.genome_fasta:
-        logger.error("--genome-fasta required for Stage 3 specificity check")
-        sys.exit(1)
+    # Check isPcr and genome-fasta availability (preflight)
+    preflight_stage3(cfg)
 
     # Filter to ok primers only
     ok_primers = [pr for pr in primer_records if pr.primer3_status == "ok"]
@@ -224,6 +218,7 @@ def _run_stage3(
     ispcr_ooc_path = str(cfg.ispcr_ooc) if cfg.ispcr_ooc else None
 
     if cfg.prepare_ispcr_db and cfg.genome_fasta:
+        preflight_prepare_ispcr_db(cfg)
         logger.info("Preparing .2bit database from %s …", cfg.genome_fasta)
         twobit = prepare_ispcr_twobit(cfg.genome_fasta)
         ispcr_db_path = str(twobit)
@@ -254,9 +249,46 @@ def _run_stage3(
         elapsed, pass_count, len(ok_primers),
     )
 
+    # Load common dbSNP database if provided
+    snp_db = None
+    if cfg.common_dbsnp_bed:
+        logger.info("Loading common dbSNP from %s …", cfg.common_dbsnp_bed)
+        snp_db = load_dbsnp_bed(cfg.common_dbsnp_bed)
+
+    # Build SNP annotations for all primer records
+    snp_annotations: dict[str, dict] = {}
+    if snp_db:
+        for pr in primer_records:
+            if pr.primer3_status != "ok":
+                continue
+            # Find the target record to get template coordinates
+            target_rec = next(
+                (r for r in all_records if r.target_id == pr.target_id), None
+            )
+            if target_rec is None:
+                continue
+
+            # Calculate genomic coordinates for primers
+            left_start = target_rec.template_start + pr.primer_left_start
+            right_start = target_rec.template_start + pr.primer_right_start
+
+            annotation = annotate_primer_pair(
+                snp_db,
+                target_rec.template_chrom,
+                left_start,
+                pr.primer_left_len,
+                right_start,
+                pr.primer_right_len,
+            )
+            primer_name = f"{pr.target_id}_rank{pr.primer_rank}"
+            snp_annotations[primer_name] = annotation
+
+        logger.info("Annotated %d primer pairs with SNP data", len(snp_annotations))
+
     # Build specificity records (includes all primer records, not just ok)
     spec_records = build_specificity_records(
         primer_records, specificity_results, expected_coords,
+        snp_annotations=snp_annotations if snp_annotations else None,
     )
 
     # Write outputs
@@ -303,7 +335,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Generate PCR primer panel targets covering CDS regions from human gene symbols (hg38).",
     )
     p.add_argument(
-        "--genes", nargs="+", required=True,
+        "--genes", nargs="+", default=None,
         help="Gene symbols to process (e.g. HFE HJV TFR2).",
     )
     p.add_argument("--output-dir", type=Path, default=Path("outputs"),
@@ -369,9 +401,100 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--make-ispcr-ooc", action="store_true",
                     help="Create an overused-tile (.ooc) file before running isPcr.")
 
+    # --- Stage control ---
+    p.add_argument("--stage", choices=["targets", "design", "specificity", "all"],
+                   default=None,
+                   help="Pipeline stage to run (default: all). "
+                        "targets=Stage1 only, design=Stage1+2, specificity/all=Stage1+2+3. "
+                        "Default (no --stage) is 'all' which requires --genome-fasta.")
+
+    # --- Common dbSNP annotation ---
+    p.add_argument("--common-dbsnp-bed", type=Path, default=None,
+                   help="Path to common dbSNP BED file for primer risk annotation.")
+
+    # --- Local annotation (Stage 1) ---
+    p.add_argument("--annotation-gtf", type=Path, default=None,
+                   help="Path to local Ensembl GTF (plain or .gtf.gz) for offline annotation. "
+                        "Replaces Ensembl REST API lookups for transcript/CDS/exon data.")
+    p.add_argument("--annotation-source", choices=["auto", "ensembl-api", "gtf"],
+                   default="auto",
+                   help="Annotation source: 'auto' uses GTF if --annotation-gtf is provided, "
+                        "otherwise Ensembl API.  'gtf' and 'ensembl-api' force that source.")
+
+    # --- Diagnostics ---
+    p.add_argument("--doctor", action="store_true",
+                   help="Run dependency and environment checks, then exit.")
+
     p.add_argument("-v", "--verbose", action="store_true",
                     help="Enable debug logging.")
     return p.parse_args(argv)
+
+
+def resolve_stage(
+    stage: str | None,
+    deprecated_design_primers: bool,
+    deprecated_check_specificity: bool,
+) -> tuple[bool, bool]:
+    """Resolve which stages to run based on --stage and deprecated flags.
+
+    Returns:
+        (run_design, run_specificity)
+    """
+    if stage is not None:
+        # Explicit --stage takes precedence
+        if deprecated_design_primers or deprecated_check_specificity:
+            logger.warning(
+                "--design-primers/--check-specificity ignored when --stage is specified"
+            )
+        if stage == "targets":
+            return False, False
+        elif stage == "design":
+            return True, False
+        else:  # specificity or all
+            return True, True
+
+    # No explicit --stage: use deprecated flags for compatibility
+    if deprecated_check_specificity:
+        return True, True
+    elif deprecated_design_primers:
+        return True, False
+    else:
+        # Default: full pipeline (Stage 1+2+3)
+        return True, True
+
+
+def _resolve_annotation_source(args) -> str:
+    """Determine which annotation source to use.
+
+    Returns ``"gtf"`` or ``"ensembl-api"``.
+    """
+    source = args.annotation_source
+    if source == "auto":
+        return "gtf" if args.annotation_gtf else "ensembl-api"
+    if source == "gtf" and not args.annotation_gtf:
+        logger.error("--annotation-source gtf requires --annotation-gtf")
+        sys.exit(1)
+    return source
+
+
+def _create_annotation_client(args, cfg):
+    """Create the appropriate annotation client (GTF or Ensembl API).
+
+    Returns an object with ``select_transcript(symbol)`` and
+    ``lookup_gene(symbol)`` methods.
+    """
+    source = _resolve_annotation_source(args)
+    if source == "gtf":
+        from .gtf_annotation import GtfAnnotationClient
+
+        gtf_path = args.annotation_gtf
+        if not gtf_path.exists():
+            logger.error("--annotation-gtf path not found: %s", gtf_path)
+            sys.exit(1)
+        logger.info("Using local GTF annotation: %s", gtf_path)
+        return GtfAnnotationClient(gtf_path)
+    else:
+        return EnsemblClient(cfg)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -380,6 +503,27 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s %(name)s: %(message)s",
+    )
+
+    # --- doctor mode: check environment and exit ---
+    if args.doctor:
+        report = run_doctor(
+            genome_fasta=args.genome_fasta,
+            common_dbsnp_bed=args.common_dbsnp_bed,
+            primer3_bin=args.primer3_bin,
+            ispcr_bin=args.is_pcr_bin,
+        )
+        print_doctor_report(report)
+        sys.exit(0 if report.all_ok else 1)
+
+    # --- Validate --genes is required for pipeline runs ---
+    if not args.genes:
+        logger.error("--genes is required (e.g. --genes HFE HJV TFR2)")
+        sys.exit(1)
+
+    # Resolve stages
+    run_design, run_specificity = resolve_stage(
+        args.stage, args.design_primers, args.check_specificity
     )
 
     product_min, product_max = args.target_size
@@ -392,7 +536,7 @@ def main(argv: list[str] | None = None) -> None:
         genome_fasta=args.genome_fasta,
         output_dir=args.output_dir,
         # Primer3 config
-        design_primers=args.design_primers,
+        design_primers=run_design,
         primer3_bin=args.primer3_bin,
         primer3plus_settings_file=args.primer3plus_settings,
         write_primer3_inputs=args.write_primer3_inputs,
@@ -408,7 +552,7 @@ def main(argv: list[str] | None = None) -> None:
         primer_min_gc=args.primer_min_gc,
         primer_max_gc=args.primer_max_gc,
         # Stage 3 config
-        check_specificity=args.check_specificity,
+        check_specificity=run_specificity,
         is_pcr_bin=args.is_pcr_bin,
         pcr_tolerance=args.pcr_tolerance,
         ispcr_db=args.ispcr_db,
@@ -416,11 +560,20 @@ def main(argv: list[str] | None = None) -> None:
         ispcr_tile_size=args.ispcr_tile_size,
         prepare_ispcr_db=args.prepare_ispcr_db,
         make_ispcr_ooc=args.make_ispcr_ooc,
+        # Common dbSNP annotation
+        common_dbsnp_bed=args.common_dbsnp_bed,
+        # Local annotation
+        annotation_gtf=args.annotation_gtf,
+        annotation_source=args.annotation_source,
     )
+
+    # --- Preflight: validate genome-fasta BEFORE creating output dir / clients ---
+    preflight_genome_fasta(cfg.genome_fasta, args.stage)
 
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
 
-    client = EnsemblClient(cfg)
+    # Create annotation client (GTF or Ensembl API)
+    client = _create_annotation_client(args, cfg)
     all_records: list[TargetRecord] = []
     all_failed: list[FailedTarget] = []
 

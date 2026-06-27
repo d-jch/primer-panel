@@ -790,6 +790,10 @@ _SPECIFICITY_COLS = [
     "insilico_best_size", "specificity_pass",
     "expected_target_chrom", "expected_target_start", "expected_target_end",
     "specificity_explain",
+    # Common dbSNP annotation fields
+    "common_snp_risk", "left_primer_common_snp_count",
+    "right_primer_common_snp_count", "left_primer_3p_common_snp_count",
+    "right_primer_3p_common_snp_count", "common_snp_hits",
 ]
 
 
@@ -833,12 +837,20 @@ class SpecificityRecord:
     expected_target_start: int
     expected_target_end: int
     specificity_explain: str
+    # Common dbSNP annotation fields
+    common_snp_risk: str = "none"
+    left_primer_common_snp_count: int = 0
+    right_primer_common_snp_count: int = 0
+    left_primer_3p_common_snp_count: int = 0
+    right_primer_3p_common_snp_count: int = 0
+    common_snp_hits: str = ""
 
 
 def build_specificity_records(
     primer_records: list[PrimerRecord],
     specificity_results: dict[str, object],  # primer_name -> SpecificityResult
     expected_coords: dict[str, tuple[str, int, int]] | None = None,  # target_id -> (chrom, start, end)
+    snp_annotations: dict[str, dict] | None = None,  # primer_name -> SNP annotation dict
 ) -> list[SpecificityRecord]:
     """Merge primer records with Stage 3 specificity results.
 
@@ -846,9 +858,12 @@ def build_specificity_records(
         primer_records: Stage 2 output
         specificity_results: {primer_name: SpecificityResult}
         expected_coords: {target_id: (chrom, start, end)} for expected target region
+        snp_annotations: {primer_name: annotation_dict} for common dbSNP
     """
     if expected_coords is None:
         expected_coords = {}
+    if snp_annotations is None:
+        snp_annotations = {}
 
     records: list[SpecificityRecord] = []
     for pr in primer_records:
@@ -859,6 +874,9 @@ def build_specificity_records(
         exp_chrom, exp_start, exp_end = expected_coords.get(
             pr.target_id, ("", 0, 0)
         )
+
+        # Get SNP annotation if available
+        snp = snp_annotations.get(primer_name, {})
 
         if sp is None:
             # No specificity result (e.g., primer3_status != ok)
@@ -876,6 +894,12 @@ def build_specificity_records(
                 expected_target_start=exp_start,
                 expected_target_end=exp_end,
                 specificity_explain="primer3_status != ok; not checked",
+                common_snp_risk=snp.get("common_snp_risk", "none"),
+                left_primer_common_snp_count=snp.get("left_primer_common_snp_count", 0),
+                right_primer_common_snp_count=snp.get("right_primer_common_snp_count", 0),
+                left_primer_3p_common_snp_count=snp.get("left_primer_3p_common_snp_count", 0),
+                right_primer_3p_common_snp_count=snp.get("right_primer_3p_common_snp_count", 0),
+                common_snp_hits=snp.get("common_snp_hits", ""),
             ))
         else:
             records.append(SpecificityRecord(
@@ -892,6 +916,12 @@ def build_specificity_records(
                 expected_target_start=exp_start,
                 expected_target_end=exp_end,
                 specificity_explain=sp.specificity_explain,
+                common_snp_risk=snp.get("common_snp_risk", "none"),
+                left_primer_common_snp_count=snp.get("left_primer_common_snp_count", 0),
+                right_primer_common_snp_count=snp.get("right_primer_common_snp_count", 0),
+                left_primer_3p_common_snp_count=snp.get("left_primer_3p_common_snp_count", 0),
+                right_primer_3p_common_snp_count=snp.get("right_primer_3p_common_snp_count", 0),
+                common_snp_hits=snp.get("common_snp_hits", ""),
             ))
     return records
 
