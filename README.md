@@ -229,17 +229,18 @@ UCSC hosts pre-built dbSNP tables for hg38.  Download a recent build and
 convert it to BED with a one-liner:
 
 ```bash
-# Download dbSNP 155 common SNPs for hg38 (~35 MB compressed)
-wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/snp155Common.txt.gz
+# Download dbSNP 151 common SNPs for hg38 (~9 MB compressed)
+wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/snp151Common.txt.gz
 
 # Convert to BED (extract chrom, chromStart, chromEnd, name)
-zcat snp155Common.txt.gz | cut -f2,3,4,5 > snp155Common_hg38.bed
+zcat snp151Common.txt.gz | cut -f2,3,4,5 > snp151Common_hg38.bed
 ```
 
 > **Assembly match:** Use the dbSNP build corresponding to your genome
-> assembly.  Higher build numbers (e.g. 156, 157) may be available — check
-> `https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/` for the latest
-> `snp*Common.txt.gz` file.
+> assembly.  snp151 is the latest build available for hg38.
+> Check `https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/` for
+> the latest `snp*Common.txt.gz` file.  Other assemblies (e.g. hg19) may
+> have higher build numbers.
 
 ### Usage
 
@@ -247,7 +248,7 @@ zcat snp155Common.txt.gz | cut -f2,3,4,5 > snp155Common_hg38.bed
 primer-panel \
   --genes HFE HJV TFR2 \
   --genome-fasta /path/to/hg38.fa \
-  --common-dbsnp-bed snp155Common_hg38.bed \
+  --common-dbsnp-bed snp151Common_hg38.bed \
   --output-dir outputs/hcc6_primers
 ```
 
