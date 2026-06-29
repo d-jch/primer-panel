@@ -252,6 +252,9 @@ def _run_stage3(
     # Load common dbSNP database if provided
     snp_db = None
     if cfg.common_dbsnp_bed:
+        if not cfg.common_dbsnp_bed.exists():
+            logger.error("--common-dbsnp-bed path not found: %s", cfg.common_dbsnp_bed)
+            sys.exit(1)
         logger.info("Loading common dbSNP from %s …", cfg.common_dbsnp_bed)
         snp_db = load_dbsnp_bed(cfg.common_dbsnp_bed)
 
@@ -463,6 +466,34 @@ def resolve_stage(
         return True, True
 
 
+def _recompute_sequence_qc(
+    record,
+    seq_status: str,
+    fa_sequences: dict[str, str],
+) -> str:
+    """Recompute target_qc_status from actual FASTA sequence content.
+
+    Strips any previous sequence-related flags (``placeholder_sequence``,
+    ``contains_N``, ``all_N``, ``ok``) and re-adds the correct one based on
+    the extracted FASTA content.
+    """
+    from .primer3_runner import has_n, is_all_n
+
+    stale_flags = {"placeholder_sequence", "contains_N", "all_N", "ok"}
+    qc_parts = [p for p in record.target_qc_status.split(";") if p and p not in stale_flags]
+
+    if seq_status == "placeholder":
+        qc_parts.append("placeholder_sequence")
+    elif seq_status == "real":
+        seq = fa_sequences.get(record.target_id, "")
+        if is_all_n(seq):
+            qc_parts.append("all_N")
+        elif has_n(seq):
+            qc_parts.append("contains_N")
+
+    return ";".join(qc_parts) if qc_parts else "ok"
+
+
 def _resolve_annotation_source(args) -> str:
     """Determine which annotation source to use.
 
@@ -652,28 +683,17 @@ def main(argv: list[str] | None = None) -> None:
 
     seq_status = write_fasta(all_records, cfg, fa_path)
     # Update records with actual sequence status and recompute QC
-    from .primer3_runner import has_n, is_all_n, parse_fasta_sequences
+    from .primer3_runner import parse_fasta_sequences
     fa_sequences: dict[str, str] = {}
     if fa_path.exists():
         fa_sequences = parse_fasta_sequences(fa_path)
 
     for r in all_records:
         r.sequence_status = seq_status
-        # Recompute target_qc_status with actual sequence status
-        qc_parts = [p for p in r.target_qc_status.split(";") if p not in ("placeholder_sequence", "ok", "contains_N", "all_N")]
-        if seq_status == "placeholder":
-            qc_parts.append("placeholder_sequence")
-        elif seq_status == "real":
-            seq = fa_sequences.get(r.target_id, "")
-            if is_all_n(seq):
-                qc_parts.append("all_N")
-            elif has_n(seq):
-                qc_parts.append("contains_N")
-        r.target_qc_status = ";".join(qc_parts) if qc_parts else "ok"
+        r.target_qc_status = _recompute_sequence_qc(r, seq_status, fa_sequences)
     # Re-write TSV with updated status
     write_summary_tsv(all_records, tsv_path)
-    if write_summary_xlsx(all_records, xlsx_path):
-        pass  # already logged
+    write_summary_xlsx(all_records, xlsx_path)  # already logged above if successful
 
     # Write failed targets (or remove stale file)
     if all_failed:

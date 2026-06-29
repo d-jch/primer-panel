@@ -45,9 +45,12 @@ class DoctorReport:
 
     @property
     def all_ok(self) -> bool:
-        return all(t.found or not t.required for t in self.tools) and all(
-            f.exists if f.path is not None else not f.required for f in self.files
+        tools_ok = all(t.found or not t.required for t in self.tools)
+        files_ok = all(
+            f.exists if f.path is not None else not f.required
+            for f in self.files
         )
+        return tools_ok and files_ok
 
 
 # ── install hints ──────────────────────────────────────────────────────────
@@ -62,7 +65,7 @@ _PRIMER3_HINT = (
 _ISPCR_HINT = (
     "UCSC isPcr is required for Stage 3 (specificity check).\n"
     "  Install via micromamba/conda:\n"
-    "    micromamba install -c bioconda ucsc-ispcr\n"
+    "    micromamba install -c bioconda ispcr\n"
     "  Or pass --is-pcr-bin /path/to/isPcr"
 )
 
