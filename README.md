@@ -223,10 +223,10 @@ chr1  10043  10044  rs1553156325
 ...
 ```
 
-### Obtaining the data from UCSC
+### Method 1: Quick download (dbSNP 151, easy)
 
-UCSC hosts pre-built dbSNP tables for hg38.  Download a recent build and
-convert it to BED with a one-liner:
+UCSC provides pre-built dbSNP table dumps for hg38.  The latest available as a
+direct table download is snp151:
 
 ```bash
 # Download dbSNP 151 common SNPs for hg38 (~9 MB compressed)
@@ -236,11 +236,21 @@ wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/snp151Common.txt.g
 zcat snp151Common.txt.gz | cut -f2,3,4,5 > snp151Common_hg38.bed
 ```
 
-> **Assembly match:** Use the dbSNP build corresponding to your genome
-> assembly.  snp151 is the latest build available for hg38.
-> Check `https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/` for
-> the latest `snp*Common.txt.gz` file.  Other assemblies (e.g. hg19) may
-> have higher build numbers.
+### Method 2: Newer builds via UCSC Table Browser (dbSNP 155+)
+
+Higher dbSNP builds (e.g. dbSNP 155) are available in the UCSC Genome Browser
+but not as FTP table dumps.  To export them:
+
+1. Open the [UCSC Table Browser](https://genome.ucsc.edu/cgi-bin/hgTables) for
+   **hg38**
+2. Select **group:** `Variation`, **track:** `dbSNP155` → `Common dbSNP(155)`
+3. Set **output format:** `BED`
+4. Click **get output**
+
+> **Note:** snp151's common SNP dataset (~6M variants) is generally sufficient
+> for primer risk annotation.  Common variant calls (MAF ≥ 1%) are stable
+> between builds — later builds primarily add population-specific rare variants
+> that are unlikely to affect common-SNP primer annotation.
 
 ### Usage
 
