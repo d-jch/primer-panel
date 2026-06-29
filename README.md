@@ -208,6 +208,53 @@ primer-panel \
   --output-dir outputs/hcc6
 ```
 
+## Downloading dbSNP Common SNP Data
+
+The `--common-dbsnp-bed` option annotates primers with known common variants
+(minor allele frequency ≥ 1%) from NCBI dbSNP, flagging primers that overlap
+high-frequency SNPs — especially at the 3' end where mismatches can impair
+polymerase extension.
+
+Primer Panel expects a 4-column BED file (0-based, half-open):
+
+```
+chr1  10019  10020  rs775809821
+chr1  10043  10044  rs1553156325
+...
+```
+
+### Obtaining the data from UCSC
+
+UCSC hosts pre-built dbSNP tables for hg38.  Download a recent build and
+convert it to BED with a one-liner:
+
+```bash
+# Download dbSNP 155 common SNPs for hg38 (~35 MB compressed)
+wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/snp155Common.txt.gz
+
+# Convert to BED (extract chrom, chromStart, chromEnd, name)
+zcat snp155Common.txt.gz | cut -f2,3,4,5 > snp155Common_hg38.bed
+```
+
+> **Assembly match:** Use the dbSNP build corresponding to your genome
+> assembly.  Higher build numbers (e.g. 156, 157) may be available — check
+> `https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/` for the latest
+> `snp*Common.txt.gz` file.
+
+### Usage
+
+```bash
+primer-panel \
+  --genes HFE HJV TFR2 \
+  --genome-fasta /path/to/hg38.fa \
+  --common-dbsnp-bed snp155Common_hg38.bed \
+  --output-dir outputs/hcc6_primers
+```
+
+The resulting `primers_specificity.tsv` will include dbSNP risk annotations:
+`common_snp_risk`, `*_common_snp_count`, `*_3p_common_snp_count`, and
+`common_snp_hits`.
+
 ## Key Outputs
 
 ### Stage 1 — Target Generation

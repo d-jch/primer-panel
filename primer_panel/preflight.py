@@ -210,7 +210,7 @@ def run_doctor(
             "common dbSNP BED",
             common_dbsnp_bed,
             required=False,
-            hint="Optional. Annotates primers with common variant overlap.",
+            hint="Optional. Download from UCSC: wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/snp155Common.txt.gz && zcat snp155Common.txt.gz | cut -f2,3,4,5 > snp155Common_hg38.bed",
         ),
     ]
     return DoctorReport(tools=tools, files=files)

@@ -413,7 +413,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # --- Common dbSNP annotation ---
     p.add_argument("--common-dbsnp-bed", type=Path, default=None,
-                   help="Path to common dbSNP BED file for primer risk annotation.")
+                   help="Path to common dbSNP BED file (chrom, start, end, rsid) for primer risk annotation. "
+                        "Download from UCSC, e.g.: wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/snp155Common.txt.gz "
+                        "&& zcat snp155Common.txt.gz | cut -f2,3,4,5 > snp155Common_hg38.bed")
 
     # --- Local annotation (Stage 1) ---
     p.add_argument("--annotation-gtf", type=Path, default=None,
