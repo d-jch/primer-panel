@@ -228,8 +228,11 @@ class GtfAnnotationClient:
                 strand_int = 1 if strand == "+" else -1
 
                 # GTF: 1-based inclusive → 0-based half-open
-                gtf_start = int(start) - 1
-                gtf_end = int(end)
+                try:
+                    gtf_start = int(start) - 1
+                    gtf_end = int(end)
+                except (ValueError, TypeError):
+                    continue  # skip lines with non-numeric coordinates
 
                 if feature == "gene":
                     self._handle_gene(attr, chrom, strand_int, gtf_start, gtf_end)
@@ -267,15 +270,30 @@ class GtfAnnotationClient:
         gene_name = attr.get("gene_name", gene_id)
         if not gene_id:
             return
-        gene = _GtfGene(
-            gene_id=gene_id,
-            gene_name=gene_name,
-            chrom=chrom,
-            strand=strand,
-            start=start,
-            end=end,
-        )
-        self._genes_by_id[gene_id] = gene
+        # Merge into existing gene entry if gene_id already seen (rare but
+        # possible across patches/alt-loci).  Only create a new gene object
+        # on first encounter.
+        existing = self._genes_by_id.get(gene_id)
+        if existing is not None:
+            gene = existing
+            # Update bounds if wider
+            if start < gene.start:
+                gene.start = start
+            if end > gene.end:
+                gene.end = end
+            # Update gene_name if more specific (first pass may have used gene_id as fallback)
+            if gene_name != gene_id and gene.gene_name == gene_id:
+                gene.gene_name = gene_name
+        else:
+            gene = _GtfGene(
+                gene_id=gene_id,
+                gene_name=gene_name,
+                chrom=chrom,
+                strand=strand,
+                start=start,
+                end=end,
+            )
+            self._genes_by_id[gene_id] = gene
         # Index by name (case-insensitive for lookup convenience)
         key = gene_name.upper()
         if key not in self._genes_by_name:

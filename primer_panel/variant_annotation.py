@@ -52,7 +52,7 @@ def load_dbsnp_bed(bed_path: Path) -> SnpDatabase:
     """
     chrom_entries: dict[str, list[SnpEntry]] = {}
 
-    with open(bed_path) as f:
+    with open(bed_path, encoding="utf-8") as f:
         for row in csv.reader(f, delimiter="\t"):
             if len(row) < 4:
                 continue
@@ -227,11 +227,7 @@ def annotate_primer_pair(
 
     # Overall risk is highest of left/right
     risk_order = {"none": 0, "medium": 1, "high": 2}
-    overall_risk = "none"
-    if risk_order.get(left_risk, 0) > risk_order.get(overall_risk, 0):
-        overall_risk = left_risk
-    if risk_order.get(right_risk, 0) > risk_order.get(overall_risk, 0):
-        overall_risk = right_risk
+    overall_risk = max(left_risk, right_risk, key=lambda r: risk_order.get(r, 0))
 
     # Combine hits
     all_hits = []

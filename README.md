@@ -27,7 +27,7 @@ Install them via micromamba/conda or a container runtime.
 ```bash
 # Create environment with all tools
 micromamba create -n primer_panel -c conda-forge -c bioconda \
-  python=3.11 primer3 ucsc-ispcr ucsc-fatotwobit \
+  python=3.11 primer3 ispcr ucsc-fatotwobit \
   requests openpyxl pyfaidx -y
 
 micromamba activate primer_panel
@@ -59,7 +59,7 @@ faToTwoBit
 | Tool | Stage | Install | Required? |
 | --- | --- | --- | --- |
 | `primer3_core` | 2 (primer design) | `micromamba install -c bioconda primer3` | For Stage 2+ |
-| `isPcr` | 3 (specificity) | `micromamba install -c bioconda ucsc-ispcr` | For Stage 3 |
+| `isPcr` | 3 (specificity) | `micromamba install -c bioconda ispcr` | For Stage 3 |
 | `faToTwoBit` | 3 (db prep) | `micromamba install -c bioconda ucsc-fatotwobit` | Optional |
 | `pyfaidx` | 1 (sequences) | `pip install pyfaidx` | For real sequences |
 | `openpyxl` | any (XLSX) | `pip install openpyxl` | Optional |
@@ -72,7 +72,7 @@ bioinformatics tools.  This avoids platform-specific binary issues:
 ```dockerfile
 FROM mambaorg/micromamba:latest
 RUN micromamba install -y -c conda-forge -c bioconda \
-    python=3.11 primer3 ucsc-ispcr ucsc-fatotwobit \
+    python=3.11 primer3 ispcr ucsc-fatotwobit \
     requests openpyxl pyfaidx && \
     micromamba clean -afy
 RUN pip install primer-panel

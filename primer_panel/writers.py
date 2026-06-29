@@ -581,12 +581,8 @@ def build_records(
         if template_length < cfg.product_min:
             needs_review = True
             status = "template_short"
-        elif template_length >= cfg.product_max:
-            if status == "ok":
-                status = "template_supports_product_max"
-        else:
-            if status == "ok":
-                status = "template_ok"
+        elif status == "ok":
+            status = "template_supports_product_max" if template_length >= cfg.product_max else "template_ok"
 
         records.append(TargetRecord(
             gene=gene,
@@ -870,18 +866,31 @@ def build_specificity_records(
         primer_name = f"{pr.target_id}_rank{pr.primer_rank}"
         sp = specificity_results.get(primer_name)
 
-        # Get expected target coords for this target
         exp_chrom, exp_start, exp_end = expected_coords.get(
             pr.target_id, ("", 0, 0)
         )
 
-        # Get SNP annotation if available
         snp = snp_annotations.get(primer_name, {})
+        snp_fields = {
+            "common_snp_risk": snp.get("common_snp_risk", "none"),
+            "left_primer_common_snp_count": snp.get("left_primer_common_snp_count", 0),
+            "right_primer_common_snp_count": snp.get("right_primer_common_snp_count", 0),
+            "left_primer_3p_common_snp_count": snp.get("left_primer_3p_common_snp_count", 0),
+            "right_primer_3p_common_snp_count": snp.get("right_primer_3p_common_snp_count", 0),
+            "common_snp_hits": snp.get("common_snp_hits", ""),
+        }
+
+        primer_fields = {k: getattr(pr, k) for k in PrimerRecord.__dataclass_fields__}
+        common = {
+            "expected_target_chrom": exp_chrom,
+            "expected_target_start": exp_start,
+            "expected_target_end": exp_end,
+            **snp_fields,
+        }
 
         if sp is None:
-            # No specificity result (e.g., primer3_status != ok)
             records.append(SpecificityRecord(
-                **{k: getattr(pr, k) for k in PrimerRecord.__dataclass_fields__},
+                **primer_fields,
                 insilico_status="not_checked",
                 insilico_hit_count=0,
                 insilico_hits="",
@@ -890,20 +899,12 @@ def build_specificity_records(
                 insilico_best_end=0,
                 insilico_best_size=0,
                 specificity_pass=False,
-                expected_target_chrom=exp_chrom,
-                expected_target_start=exp_start,
-                expected_target_end=exp_end,
                 specificity_explain="primer3_status != ok; not checked",
-                common_snp_risk=snp.get("common_snp_risk", "none"),
-                left_primer_common_snp_count=snp.get("left_primer_common_snp_count", 0),
-                right_primer_common_snp_count=snp.get("right_primer_common_snp_count", 0),
-                left_primer_3p_common_snp_count=snp.get("left_primer_3p_common_snp_count", 0),
-                right_primer_3p_common_snp_count=snp.get("right_primer_3p_common_snp_count", 0),
-                common_snp_hits=snp.get("common_snp_hits", ""),
+                **common,
             ))
         else:
             records.append(SpecificityRecord(
-                **{k: getattr(pr, k) for k in PrimerRecord.__dataclass_fields__},
+                **primer_fields,
                 insilico_status=sp.insilico_status,
                 insilico_hit_count=sp.insilico_hit_count,
                 insilico_hits=sp.insilico_hits,
@@ -912,16 +913,8 @@ def build_specificity_records(
                 insilico_best_end=sp.insilico_best_end,
                 insilico_best_size=sp.insilico_best_size,
                 specificity_pass=sp.specificity_pass,
-                expected_target_chrom=exp_chrom,
-                expected_target_start=exp_start,
-                expected_target_end=exp_end,
                 specificity_explain=sp.specificity_explain,
-                common_snp_risk=snp.get("common_snp_risk", "none"),
-                left_primer_common_snp_count=snp.get("left_primer_common_snp_count", 0),
-                right_primer_common_snp_count=snp.get("right_primer_common_snp_count", 0),
-                left_primer_3p_common_snp_count=snp.get("left_primer_3p_common_snp_count", 0),
-                right_primer_3p_common_snp_count=snp.get("right_primer_3p_common_snp_count", 0),
-                common_snp_hits=snp.get("common_snp_hits", ""),
+                **common,
             ))
     return records
 
