@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.6.0 (2026-06-30)
+
+### bigBed (.bb) dbSNP support
+- `--common-dbsnp-bed` accepts `.bb` (bigBed) files directly
+- `.bb` files queried on-demand via `bigBedToBed -chrom -start -end` (no conversion)
+- `SnpDatabase` Protocol with `BedSnpDatabase` (in-memory) and `BigBedSnpDatabase` (region queries)
+- Early preflight validates `bigBedToBed` before expensive isPcr scan
+
+### Auto .2bit generation
+- Stage 3 auto-generates `.2bit` from FASTA on first run if `faToTwoBit` is installed
+- Falls back to plain FASTA with install hint if `faToTwoBit` is missing
+- `--prepare-ispcr-db` now only needed to force rebuild
+
+### Bug fixes
+- Add file existence check before `load_dbsnp_bed` (prevents raw `FileNotFoundError`)
+- Fix GTF parser gene overwrite on duplicate `gene_id` entries
+- Guard coordinate parsing with try/except for malformed GTF lines
+- Fix bioconda package name: `ucsc-ispcr` → `ispcr`
+
+### Code cleanup
+- Reuse `_recompute_sequence_qc` instead of duplicating logic inline
+- Remove unused imports, simplify control flow
+- `load_dbsnp_bed` deprecated in favor of `load_dbsnp_db`
+
+### Docs
+- README simplified from 472 to 243 lines
+- dbSNP download section with two methods: snp151 table dump + dbSnp155 bigBed
+
+## 0.5.0 (2026-06-27)
+
+### Offline annotation
+- Add `--annotation-gtf` for local Ensembl GTF annotation (offline mode)
+- Add `--annotation-source` to select `auto`/`ensembl-api`/`gtf`
+- GTF parser supports both `gene_name` and `gene_id` lookups
+
+### Preflight system
+- Add `--doctor` flag: check `primer3_core`, `isPcr`, `faToTwoBit`, input files
+- Stage-gated preflight: validate tools and files before each stage
+- Structured `DoctorReport` with tool/file checks and install hints
+
+### Dependency Doctor
+- `primer-panel --doctor` reports tool availability and file paths
+
 ## 0.4.0 (2026-06-24)
 
 ### CLI
