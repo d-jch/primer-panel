@@ -61,6 +61,7 @@ faToTwoBit
 | `primer3_core` | 2 (primer design) | `micromamba install -c bioconda primer3` | For Stage 2+ |
 | `isPcr` | 3 (specificity) | `micromamba install -c bioconda ispcr` | For Stage 3 |
 | `faToTwoBit` | 3 (db prep) | `micromamba install -c bioconda ucsc-fatotwobit` | Optional |
+| `bigBedToBed` | dbSNP prep | `micromamba install -c bioconda ucsc-bigbedtobed` | Optional |
 | `pyfaidx` | 1 (sequences) | `pip install pyfaidx` | For real sequences |
 | `openpyxl` | any (XLSX) | `pip install openpyxl` | Optional |
 
@@ -236,16 +237,22 @@ wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/snp151Common.txt.g
 zcat snp151Common.txt.gz | cut -f2,3,4,5 > snp151Common_hg38.bed
 ```
 
-### Method 2: Newer builds via UCSC Table Browser (dbSNP 155+)
+### Method 2: Newer builds via bigBed (dbSNP 155+, automated)
 
-Higher dbSNP builds (e.g. dbSNP 155) are available in the UCSC Genome Browser
-but not as FTP table dumps.  To export them:
+Higher dbSNP builds are available as bigBed files in UCSC's gbdb directory.
+Convert to BED with `bigBedToBed`:
 
-1. Open the [UCSC Table Browser](https://genome.ucsc.edu/cgi-bin/hgTables) for
-   **hg38**
-2. Select **group:** `Variation`, **track:** `dbSNP155` → `Common dbSNP(155)`
-3. Set **output format:** `BED`
-4. Click **get output**
+```bash
+# Install bigBedToBed (one-time)
+micromamba install -c bioconda ucsc-bigbedtobed
+
+# Download and convert (~2 GB download, ~7 GB BED output)
+wget https://hgdownload.soe.ucsc.edu/gbdb/hg38/snp/dbSnp155Common.bb
+bigBedToBed dbSnp155Common.bb dbSnp155Common_hg38.bed
+```
+
+Available builds: `dbSnp153Common.bb`, `dbSnp155Common.bb`.  Check
+`https://hgdownload.soe.ucsc.edu/gbdb/hg38/snp/` for newer releases.
 
 > **Note:** snp151's common SNP dataset (~6M variants) is generally sufficient
 > for primer risk annotation.  Common variant calls (MAF ≥ 1%) are stable
