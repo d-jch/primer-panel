@@ -155,7 +155,7 @@ primer-panel-finalize \
 | `--ispcr-db PATH` | auto | Explicit `.2bit`/`.nib` database for isPcr. |
 | `--ispcr-ooc PATH` | auto | Explicit overused-tile (`.ooc`) file for isPcr. |
 | `--ispcr-tile-size N` | `11` | Tile size for isPcr. |
-| `--prepare-ispcr-db` | off | Create a `.2bit` database from the genome FASTA. |
+| `--prepare-ispcr-db` | off | Explicitly (re)create a `.2bit` database (now automatic — only needed to force rebuild). |
 | `--make-ispcr-ooc` | off | Create an overused-tile (`.ooc`) file. |
 
 ## isPcr Acceleration
@@ -168,22 +168,26 @@ it up significantly:
 - **`.ooc` (overused-tile) file** — pre-computed mask for repetitive k-mers.
   Skips alignment against high-frequency tiles during the genome scan.
 
-### Auto-discovery (default)
+### Auto-discovery + auto-generation (default)
 
 When you pass `--genome-fasta /path/to/hg38.fa`, the pipeline automatically
-looks for these files in the same directory:
+looks for a `.2bit` file in the same directory.  **If none is found and
+`faToTwoBit` is installed, it is auto-generated** (one-time, ~1-3 min).
+If `faToTwoBit` is not installed, the pipeline falls back to the plain FASTA
+with a one-time hint to install it.
 
-| File searched | Example |
-| --- | --- |
-| Same-basename `.2bit` | `hg38.2bit` |
-| Same-basename `.nib` | `hg38.nib` |
-| `*.<tileSize>.ooc` | `hg38.11.ooc` |
+| File searched | Example | Behavior |
+| --- | --- | --- |
+| Same-basename `.2bit` | `hg38.2bit` | Auto-discovered |
+| Same-basename `.nib` | `hg38.nib` | Auto-discovered |
+| `*.<tileSize>.ooc` | `hg38.11.ooc` | Auto-discovered |
 
-If found, they are used automatically. No extra flags needed.
+No extra flags needed.
 
 ### Explicit creation
 
-To create these files yourself (one-time setup):
+The pipeline auto-generates `.2bit` on first run.  If you want to pre-create
+it (or force a rebuild), use:
 
 ```bash
 # Create .2bit from FASTA (requires UCSC faToTwoBit)
@@ -192,7 +196,7 @@ primer-panel \
   --prepare-ispcr-db --check-specificity --design-primers \
   --output-dir outputs/hcc6
 
-# Create .ooc overused-tile file
+# Create .ooc overused-tile file (always explicit)
 primer-panel \
   --genes HFE --genome-fasta /path/to/hg38.fa \
   --make-ispcr-ooc --check-specificity --design-primers \

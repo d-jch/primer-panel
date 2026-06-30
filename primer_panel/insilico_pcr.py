@@ -138,15 +138,69 @@ def prepare_ispcr_twobit(
     )
     if out_path.exists():
         return out_path
+    return _fa_to_twobit(genome_path, out_path, fa_to_twobit_bin)
+
+
+def _fa_to_twobit(fasta: Path, output: Path, bin_name: str = "faToTwoBit") -> Path:
+    """Run faToTwoBit — factored out for reuse by auto-generation."""
     proc = subprocess.run(
-        [fa_to_twobit_bin, str(genome_path), str(out_path)],
+        [bin_name, str(fasta), str(output)],
         capture_output=True,
         text=True,
         timeout=3600,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"faToTwoBit failed: {proc.stderr[:200]}")
-    return out_path
+    return output
+
+
+def ensure_twobit(
+    genome_fasta: str | Path,
+    *,
+    fa_to_twobit_bin: str = "faToTwoBit",
+) -> str | None:
+    """Auto-create a .2bit database for the genome FASTA when beneficial.
+
+    Called before Stage 3 isPcr.  Returns the path to a .2bit file if one
+    is available (pre-existing, explicitly requested, or auto-generated),
+    or ``None`` if the FASTA should be used as-is.
+
+    Logging:
+    - Info when a .2bit is found or auto-created.
+    - A one-time hint when faToTwoBit is not installed (falls back to FASTA).
+
+    This function is safe to call even when ``--ispcr-db`` or
+    ``--prepare-ispcr-db`` have already been used — it only acts when no
+    binary database is available yet.
+    """
+    genome_path = Path(genome_fasta)
+
+    # When the genome itself is already a binary format, nothing to create
+    if genome_path.suffix.lower() in {".2bit", ".nib"}:
+        return None
+
+    base = _genome_basename(genome_path)
+    twobit_candidate = genome_path.parent / f"{base}.2bit"
+
+    if twobit_candidate.exists():
+        logger.info("Found existing .2bit database: %s", twobit_candidate)
+        return str(twobit_candidate)
+
+    if not shutil.which(fa_to_twobit_bin):
+        logger.info(
+            "faToTwoBit not found — isPcr will use the plain FASTA (slower). "
+            "Install faToTwoBit for a one-time speed-up: "
+            "micromamba install -c bioconda ucsc-fatotwobit"
+        )
+        return None
+
+    logger.info(
+        "No .2bit database found — auto-generating from %s (~1-3 min, one-time) …",
+        genome_path,
+    )
+    _fa_to_twobit(genome_path, twobit_candidate, fa_to_twobit_bin)
+    logger.info(".2bit database created: %s", twobit_candidate)
+    return str(twobit_candidate)
 
 
 def make_ispcr_ooc(
