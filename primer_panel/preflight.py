@@ -75,6 +75,12 @@ _FATOTWOBIT_HINT = (
     "    micromamba install -c bioconda ucsc-fatotwobit"
 )
 
+_BIGBEDTOBED_HINT = (
+    "UCSC bigBedToBed is needed to query .bb SNP databases.\n"
+    "  Install via micromamba/conda:\n"
+    "    micromamba install -c bioconda ucsc-bigbedtobed"
+)
+
 
 # ── tool checks ────────────────────────────────────────────────────────────
 
@@ -101,6 +107,10 @@ def check_ispcr(bin_path: str = "isPcr") -> ToolCheck:
 
 def check_fatotwobit(bin_path: str = "faToTwoBit") -> ToolCheck:
     return check_tool("faToTwoBit", bin_path, _FATOTWOBIT_HINT, required=False)
+
+
+def check_bigbedtobed(bin_path: str = "bigBedToBed") -> ToolCheck:
+    return check_tool("bigBedToBed", bin_path, _BIGBEDTOBED_HINT, required=False)
 
 
 # ── file checks ────────────────────────────────────────────────────────────
@@ -198,6 +208,7 @@ def run_doctor(
         check_primer3(primer3_bin),
         check_ispcr(ispcr_bin),
         check_fatotwobit(),
+        check_bigbedtobed(),
     ]
     files = [
         check_file(
@@ -210,7 +221,9 @@ def run_doctor(
             "common dbSNP BED",
             common_dbsnp_bed,
             required=False,
-            hint="Optional. Download from UCSC (see README for details): wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/snp151Common.txt.gz",
+            hint="Optional. Annotates primers with common variant overlap. "
+                  "Accepts .bed or .bb (bigBed, requires ucsc-bigbedtobed). "
+                  "See README for download instructions.",
         ),
     ]
     return DoctorReport(tools=tools, files=files)

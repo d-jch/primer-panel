@@ -21,7 +21,7 @@ from .preflight import (
 )
 from .target_planner_adapter import plan_targets_with_external_planner
 from .stage3_inputs import build_stage3_inputs
-from .variant_annotation import load_dbsnp_bed, annotate_primer_pair
+from .variant_annotation import load_dbsnp_db, annotate_primer_pair
 from .writers import (
     FailedTarget,
     PrimerRecord,
@@ -256,7 +256,7 @@ def _run_stage3(
             logger.error("--common-dbsnp-bed path not found: %s", cfg.common_dbsnp_bed)
             sys.exit(1)
         logger.info("Loading common dbSNP from %s …", cfg.common_dbsnp_bed)
-        snp_db = load_dbsnp_bed(cfg.common_dbsnp_bed)
+        snp_db = load_dbsnp_db(cfg.common_dbsnp_bed)
 
     # Build SNP annotations for all primer records
     snp_annotations: dict[str, dict] = {}
@@ -413,9 +413,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # --- Common dbSNP annotation ---
     p.add_argument("--common-dbsnp-bed", type=Path, default=None,
-                   help="Path to common dbSNP BED file (chrom, start, end, rsid) for primer risk annotation. "
-                        "Download from UCSC, e.g.: wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/snp151Common.txt.gz. "
-                        "See README for newer dbSNP builds.")
+                   help="Path to common dbSNP file (.bed or .bb) for primer risk annotation. "
+                        ".bed from N: wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/snp151Common.txt.gz "
+                        "&& zcat snp151Common.txt.gz | cut -f2,3,4,5. "
+                        ".bb from UCSC gbdb: wget https://hgdownload.soe.ucsc.edu/gbdb/hg38/snp/dbSnp155Common.bb "
+                        "(requires bigBedToBed: micromamba install -c bioconda ucsc-bigbedtobed). "
+                        "See README for details.")
 
     # --- Local annotation (Stage 1) ---
     p.add_argument("--annotation-gtf", type=Path, default=None,

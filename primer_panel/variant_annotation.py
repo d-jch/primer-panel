@@ -1,31 +1,53 @@
 """Common dbSNP variant annotation for primer binding sites.
 
 Provides efficient overlap queries between primer coordinates and
-common dbSNP variants loaded from a BED file.
+common dbSNP variants, supporting both plain BED and bigBed (.bb) files.
 
 BED format (0-based, half-open):
     chrom   start   end   rsid
+
+bigBed files are queried directly via ``bigBedToBed`` region queries —
+no intermediate conversion or full-text dump is needed.
 """
 
 from __future__ import annotations
 
 import csv
 import logging
+import shutil
+import subprocess
 from bisect import bisect_left
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 logger = logging.getLogger(__name__)
 
 
+# ── data structures ──────────────────────────────────────────────────────────
+
+
 @dataclass
 class SnpEntry:
-    """A single SNP entry from BED file."""
+    """A single SNP entry."""
 
     chrom: str
     start: int  # 0-based
     end: int    # half-open
     rsid: str
+
+
+class SnpDatabase(Protocol):
+    """Interface for SNP overlap queries.
+
+    Implementations:
+        BedSnpDatabase  — in-memory index from a plain BED file
+        BigBedSnpDatabase — region queries against a .bb file via bigBedToBed
+    """
+
+    def query_region(self, chrom: str, start: int, end: int) -> list[SnpEntry]:
+        """Return SNPs overlapping [start, end)."""
+        ...
 
 
 @dataclass
@@ -38,25 +60,126 @@ class ChromIndex:
 
 
 @dataclass
-class SnpDatabase:
-    """Indexed SNP database for efficient overlap queries."""
+class BedSnpDatabase:
+    """In-memory SNP index loaded from a plain BED file."""
 
     chroms: dict[str, ChromIndex] = field(default_factory=dict)
+    _total_snps: int = 0
+
+    def query_region(self, chrom: str, start: int, end: int) -> list[SnpEntry]:
+        """Find SNPs overlapping [start, end) using in-memory B-tree."""
+        if chrom not in self.chroms:
+            return []
+
+        idx = self.chroms[chrom]
+        if not idx.entries:
+            return []
+
+        upper = bisect_left(idx.starts, end)
+        result = []
+        for i in range(upper - 1, -1, -1):
+            entry = idx.entries[i]
+            if entry.end > start:
+                result.append(entry)
+            if idx.max_end_prefix[i] <= start:
+                break
+
+        return result
 
 
-def load_dbsnp_bed(bed_path: Path) -> SnpDatabase:
-    """Load common dbSNP BED file and build per-chromosome index.
+@dataclass
+class BigBedSnpDatabase:
+    """bigBed-backed SNP database queried via ``bigBedToBed``.
 
-    BED format: chrom start end name (0-based, half-open)
-    Lines with fewer than 4 columns are skipped.
+    Each ``query_region`` call spawns a ``bigBedToBed`` subprocess with
+    ``-chrom -start -end`` flags.  bigBed's internal B+tree index makes
+    each region query fast — only the relevant data blocks are read.
     """
+
+    path: Path
+
+    def query_region(self, chrom: str, start: int, end: int) -> list[SnpEntry]:
+        """Query bigBed for SNPs in [start, end)."""
+        cmd = [
+            "bigBedToBed",
+            "-chrom=" + chrom,
+            "-start=" + str(start),
+            "-end=" + str(end),
+            str(self.path),
+            "stdout",
+        ]
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except FileNotFoundError:
+            raise RuntimeError(
+                "bigBedToBed is required to query .bb files.\n"
+                "  Install via micromamba/conda:\n"
+                "    micromamba install -c bioconda ucsc-bigbedtobed\n"
+                "  Or convert the .bb to .bed first:\n"
+                "    bigBedToBed input.bb output.bed"
+            ) from None
+
+        if proc.returncode != 0:
+            stderr = proc.stderr.strip()
+            raise RuntimeError(
+                f"bigBedToBed failed (exit {proc.returncode}): {stderr}"
+            )
+
+        results: list[SnpEntry] = []
+        for line in proc.stdout.splitlines():
+            if not line.strip() or line.startswith("#"):
+                continue
+            fields = line.split("\t")
+            if len(fields) < 4:
+                continue
+            try:
+                results.append(SnpEntry(
+                    chrom=fields[0],
+                    start=int(fields[1]),
+                    end=int(fields[2]),
+                    rsid=fields[3],
+                ))
+            except (ValueError, IndexError):
+                continue
+
+        return results
+
+
+# ── factory ──────────────────────────────────────────────────────────────────
+
+
+def load_dbsnp_db(path: Path) -> SnpDatabase:
+    """Load a SNP database from a BED or bigBed file.
+
+    - ``.bed`` files are loaded into an in-memory index.
+    - ``.bb``  files are opened for on-demand region queries via
+      ``bigBedToBed`` (requires ``ucsc-bigbedtobed``).
+    """
+    if path.suffix == ".bb":
+        _check_bigbedtobed()
+        logger.info("Opening bigBed SNP database: %s", path)
+        return BigBedSnpDatabase(path=path)
+
+    logger.info("Loading BED SNP database from %s …", path)
+    return _load_bed(path)
+
+
+# ── BED parser (internal) ────────────────────────────────────────────────────
+
+
+def _load_bed(bed_path: Path) -> BedSnpDatabase:
+    """Load a plain BED file and build per-chromosome index."""
     chrom_entries: dict[str, list[SnpEntry]] = {}
 
     with open(bed_path, encoding="utf-8") as f:
         for row in csv.reader(f, delimiter="\t"):
             if len(row) < 4:
                 continue
-            # Skip comment/header lines
             if row[0].startswith("#"):
                 continue
             chrom, start_str, end_str, rsid = row[0], row[1], row[2], row[3]
@@ -68,8 +191,7 @@ def load_dbsnp_bed(bed_path: Path) -> SnpDatabase:
                 chrom_entries[chrom] = []
             chrom_entries[chrom].append(SnpEntry(chrom, start, end, rsid))
 
-    # Build sorted index per chromosome
-    db = SnpDatabase()
+    db = BedSnpDatabase()
     for chrom, entries in chrom_entries.items():
         entries.sort(key=lambda e: e.start)
         starts = [e.start for e in entries]
@@ -81,15 +203,42 @@ def load_dbsnp_bed(bed_path: Path) -> SnpDatabase:
         db.chroms[chrom] = ChromIndex(
             entries=entries, starts=starts, max_end_prefix=max_end_prefix,
         )
+    db._total_snps = sum(len(v.entries) for v in db.chroms.values())
 
-    total_snps = sum(len(v.entries) for v in db.chroms.values())
     logger.info(
         "Loaded %d SNPs across %d chromosomes from %s",
-        total_snps,
+        db._total_snps,
         len(db.chroms),
         bed_path,
     )
     return db
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+
+_BIGBEDTOBED_HINT = (
+    "bigBedToBed is required to query .bb SNP databases.\n"
+    "  Install via micromamba/conda:\n"
+    "    micromamba install -c bioconda ucsc-bigbedtobed"
+)
+
+
+def check_bigbedtobed() -> str | None:
+    """Return install hint if bigBedToBed is missing, else None."""
+    if shutil.which("bigBedToBed") is None:
+        return _BIGBEDTOBED_HINT
+    return None
+
+
+def _check_bigbedtobed() -> None:
+    """Raise RuntimeError if bigBedToBed is not available."""
+    hint = check_bigbedtobed()
+    if hint:
+        raise RuntimeError(hint)
+
+
+# ── overlap query ────────────────────────────────────────────────────────────
 
 
 def _find_overlapping_snps(
@@ -100,32 +249,13 @@ def _find_overlapping_snps(
 ) -> list[SnpEntry]:
     """Find SNPs overlapping [start, end) interval.
 
-    Uses binary search on sorted starts and a prefix-maximum of ends
-    for efficient early termination.  Correctly handles intervals of any
-    length, not just short SNPs.
+    Delegates to ``db.query_region`` so the same code works for both
+    in-memory (BED) and on-demand (bigBed) backends.
     """
-    if chrom not in db.chroms:
-        return []
+    return db.query_region(chrom, start, end)
 
-    idx = db.chroms[chrom]
-    if not idx.entries:
-        return []
 
-    # Upper bound: entries with start >= end cannot overlap
-    upper = bisect_left(idx.starts, end)
-
-    result = []
-    # Scan backwards from upper-1; use max_end_prefix for early termination
-    for i in range(upper - 1, -1, -1):
-        entry = idx.entries[i]
-        if entry.end > start:
-            result.append(entry)
-        # If the maximum end among entries[0..i] doesn't reach start,
-        # no earlier entry can overlap either.
-        if idx.max_end_prefix[i] <= start:
-            break
-
-    return result
+# ── primer annotation ────────────────────────────────────────────────────────
 
 
 def annotate_primer_snps(
@@ -138,7 +268,7 @@ def annotate_primer_snps(
     """Annotate a single primer with overlapping SNPs.
 
     Args:
-        db: SNP database
+        db: SNP database (BED or bigBed backend)
         chrom: chromosome name
         primer_start: primer start position (template-relative)
         primer_len: primer length
@@ -244,3 +374,18 @@ def annotate_primer_pair(
         "right_primer_3p_common_snp_count": right_3p,
         "common_snp_hits": "|".join(all_hits),
     }
+
+
+# ── deprecated alias ─────────────────────────────────────────────────────────
+
+
+def load_dbsnp_bed(bed_path: Path) -> SnpDatabase:
+    """Deprecated: use ``load_dbsnp_db`` instead.
+
+    Kept for backward compatibility with existing callers.
+    """
+    logger.warning(
+        "load_dbsnp_bed is deprecated — use load_dbsnp_db which also "
+        "supports .bb (bigBed) files."
+    )
+    return load_dbsnp_db(bed_path)

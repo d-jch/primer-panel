@@ -216,13 +216,10 @@ The `--common-dbsnp-bed` option annotates primers with known common variants
 high-frequency SNPs — especially at the 3' end where mismatches can impair
 polymerase extension.
 
-Primer Panel expects a 4-column BED file (0-based, half-open):
-
-```
-chr1  10019  10020  rs775809821
-chr1  10043  10044  rs1553156325
-...
-```
+Primer Panel accepts both plain BED (`.bed`) and bigBed (`.bb`) files.
+bigBed files are queried **directly** — on-demand region queries via
+``bigBedToBed`` `-chrom`/`-start`/`-end` flags, leveraging bigBed's
+internal B+tree index.  No intermediate conversion to BED is needed.
 
 ### Method 1: Quick download (dbSNP 151, easy)
 
@@ -237,18 +234,22 @@ wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/snp151Common.txt.g
 zcat snp151Common.txt.gz | cut -f2,3,4,5 > snp151Common_hg38.bed
 ```
 
-### Method 2: Newer builds via bigBed (dbSNP 155+, automated)
+### Method 2: Newer builds via bigBed — use the .bb directly (dbSNP 155+)
 
 Higher dbSNP builds are available as bigBed files in UCSC's gbdb directory.
-Convert to BED with `bigBedToBed`:
+Primer Panel can query ``.bb`` files directly via ``bigBedToBed`` (install
+once with ``micromamba install -c bioconda ucsc-bigbedtobed``):
 
 ```bash
-# Install bigBedToBed (one-time)
-micromamba install -c bioconda ucsc-bigbedtobed
-
-# Download and convert (~2 GB download, ~7 GB BED output)
+# Download dbSNP 155 common SNPs as bigBed (~2 GB)
 wget https://hgdownload.soe.ucsc.edu/gbdb/hg38/snp/dbSnp155Common.bb
-bigBedToBed dbSnp155Common.bb dbSnp155Common_hg38.bed
+
+# Use .bb directly — no conversion needed
+primer-panel \
+  --genes HFE HJV TFR2 \
+  --genome-fasta /path/to/hg38.fa \
+  --common-dbsnp-bed dbSnp155Common.bb \
+  --output-dir outputs/hcc6_primers
 ```
 
 Available builds: `dbSnp153Common.bb`, `dbSnp155Common.bb`.  Check
@@ -262,10 +263,18 @@ Available builds: `dbSnp153Common.bb`, `dbSnp155Common.bb`.  Check
 ### Usage
 
 ```bash
+# With a plain BED file
 primer-panel \
   --genes HFE HJV TFR2 \
   --genome-fasta /path/to/hg38.fa \
   --common-dbsnp-bed snp151Common_hg38.bed \
+  --output-dir outputs/hcc6_primers
+
+# Or with a bigBed file (requires ucsc-bigbedtobed)
+primer-panel \
+  --genes HFE HJV TFR2 \
+  --genome-fasta /path/to/hg38.fa \
+  --common-dbsnp-bed dbSnp155Common.bb \
   --output-dir outputs/hcc6_primers
 ```
 
