@@ -61,6 +61,7 @@ faToTwoBit
 | `primer3_core` | 2 (primer design) | `micromamba install -c bioconda primer3` | For Stage 2+ |
 | `isPcr` | 3 (specificity) | `micromamba install -c bioconda ispcr` | For Stage 3 |
 | `faToTwoBit` | 3 (db prep) | `micromamba install -c bioconda ucsc-fatotwobit` | Optional |
+| `bigBedToBed` | dbSNP prep | `micromamba install -c bioconda ucsc-bigbedtobed` | Optional |
 | `pyfaidx` | 1 (sequences) | `pip install pyfaidx` | For real sequences |
 | `openpyxl` | any (XLSX) | `pip install openpyxl` | Optional |
 
@@ -223,23 +224,40 @@ chr1  10043  10044  rs1553156325
 ...
 ```
 
-### Obtaining the data from UCSC
+### Method 1: Quick download (dbSNP 151, easy)
 
-UCSC hosts pre-built dbSNP tables for hg38.  Download a recent build and
-convert it to BED with a one-liner:
+UCSC provides pre-built dbSNP table dumps for hg38.  The latest available as a
+direct table download is snp151:
 
 ```bash
-# Download dbSNP 155 common SNPs for hg38 (~35 MB compressed)
-wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/snp155Common.txt.gz
+# Download dbSNP 151 common SNPs for hg38 (~9 MB compressed)
+wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/snp151Common.txt.gz
 
 # Convert to BED (extract chrom, chromStart, chromEnd, name)
-zcat snp155Common.txt.gz | cut -f2,3,4,5 > snp155Common_hg38.bed
+zcat snp151Common.txt.gz | cut -f2,3,4,5 > snp151Common_hg38.bed
 ```
 
-> **Assembly match:** Use the dbSNP build corresponding to your genome
-> assembly.  Higher build numbers (e.g. 156, 157) may be available — check
-> `https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/` for the latest
-> `snp*Common.txt.gz` file.
+### Method 2: Newer builds via bigBed (dbSNP 155+, automated)
+
+Higher dbSNP builds are available as bigBed files in UCSC's gbdb directory.
+Convert to BED with `bigBedToBed`:
+
+```bash
+# Install bigBedToBed (one-time)
+micromamba install -c bioconda ucsc-bigbedtobed
+
+# Download and convert (~2 GB download, ~7 GB BED output)
+wget https://hgdownload.soe.ucsc.edu/gbdb/hg38/snp/dbSnp155Common.bb
+bigBedToBed dbSnp155Common.bb dbSnp155Common_hg38.bed
+```
+
+Available builds: `dbSnp153Common.bb`, `dbSnp155Common.bb`.  Check
+`https://hgdownload.soe.ucsc.edu/gbdb/hg38/snp/` for newer releases.
+
+> **Note:** snp151's common SNP dataset (~6M variants) is generally sufficient
+> for primer risk annotation.  Common variant calls (MAF ≥ 1%) are stable
+> between builds — later builds primarily add population-specific rare variants
+> that are unlikely to affect common-SNP primer annotation.
 
 ### Usage
 
@@ -247,7 +265,7 @@ zcat snp155Common.txt.gz | cut -f2,3,4,5 > snp155Common_hg38.bed
 primer-panel \
   --genes HFE HJV TFR2 \
   --genome-fasta /path/to/hg38.fa \
-  --common-dbsnp-bed snp155Common_hg38.bed \
+  --common-dbsnp-bed snp151Common_hg38.bed \
   --output-dir outputs/hcc6_primers
 ```
 
