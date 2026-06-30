@@ -197,6 +197,7 @@ def _run_stage3(
     from .insilico_pcr import (
         check_ispcr_available,
         check_specificity_batch,
+        ensure_twobit,
         make_ispcr_ooc,
         prepare_ispcr_twobit,
     )
@@ -226,6 +227,12 @@ def _run_stage3(
         twobit = prepare_ispcr_twobit(cfg.genome_fasta)
         ispcr_db_path = str(twobit)
         logger.info(".2bit database → %s", twobit)
+
+    # Auto-discover or auto-create .2bit when no explicit db was specified
+    if ispcr_db_path is None and cfg.genome_fasta is not None:
+        auto_twobit = ensure_twobit(cfg.genome_fasta)
+        if auto_twobit is not None:
+            ispcr_db_path = auto_twobit
 
     if cfg.make_ispcr_ooc and ispcr_db_path:
         logger.info("Creating .ooc file (tileSize=%d) …", cfg.ispcr_tile_size)
