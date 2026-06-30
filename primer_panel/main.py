@@ -12,6 +12,7 @@ from .config import PipelineConfig
 from .ensembl_client import EnsemblClient
 from .cds_handler import build_required_intervals
 from .preflight import (
+    preflight_bigbed_dbsnp,
     preflight_genome_fasta,
     preflight_prepare_ispcr_db,
     preflight_stage2,
@@ -202,6 +203,8 @@ def _run_stage3(
 
     # Check isPcr and genome-fasta availability (preflight)
     preflight_stage3(cfg)
+    # Check bigBedToBed BEFORE Stage 3 isPcr run (avoid wasting computation)
+    preflight_bigbed_dbsnp(cfg)
 
     # Filter to ok primers only
     ok_primers = [pr for pr in primer_records if pr.primer3_status == "ok"]

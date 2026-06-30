@@ -167,6 +167,18 @@ def preflight_stage3(cfg) -> None:
     _validate_fasta_path(cfg.genome_fasta, "Stage 3 (specificity check)")
 
 
+def preflight_bigbed_dbsnp(cfg) -> None:
+    """Validate bigBedToBed is available when a .bb dbSNP file is used.
+
+    Must be called BEFORE the expensive Stage 3 isPcr run so a missing
+    tool is caught early instead of wasting the computation.
+    """
+    if cfg.common_dbsnp_bed is not None and cfg.common_dbsnp_bed.suffix == ".bb":
+        tc = check_bigbedtobed()
+        if not tc.found:
+            _abort(tc.install_hint)
+
+
 def preflight_prepare_ispcr_db(cfg) -> None:
     """Validate faToTwoBit is available for --prepare-ispcr-db."""
     tc = check_fatotwobit()
