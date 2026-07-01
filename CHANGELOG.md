@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1 (2026-06-30)
+
+### Bug fix
+- Swap forward/reverse primer labels for minus-strand genes (FTH1, etc.)
+
 ## 0.6.0 (2026-06-30)
 
 ### bigBed (.bb) dbSNP support
