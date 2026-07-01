@@ -2,7 +2,30 @@
 
 from __future__ import annotations
 
+import logging
+
 from .writers import PrimerRecord, TargetRecord
+
+logger = logging.getLogger(__name__)
+
+
+def _dedup_primer_batch(
+    primer_batch: list[dict],
+) -> list[dict]:
+    """Remove duplicate primer entries by name (first occurrence wins)."""
+    seen: set[str] = set()
+    deduped: list[dict] = []
+    for p in primer_batch:
+        name = p["name"]
+        if name not in seen:
+            seen.add(name)
+            deduped.append(p)
+    if len(deduped) < len(primer_batch):
+        logger.warning(
+            "Dropped %d duplicate primer names from isPcr batch",
+            len(primer_batch) - len(deduped),
+        )
+    return deduped
 
 
 def build_stage3_inputs(
@@ -42,7 +65,7 @@ def build_stage3_inputs(
             "expected_end": target.template_start + primer.primer_right_start + 1,
         })
 
-    return primer_batch, expected_coords
+    return _dedup_primer_batch(primer_batch), expected_coords
 
 
 def build_stage3_inputs_from_target_coords(
@@ -76,4 +99,4 @@ def build_stage3_inputs_from_target_coords(
             "expected_end": template_start + primer.primer_right_start + 1,
         })
 
-    return primer_batch, expected_coords
+    return _dedup_primer_batch(primer_batch), expected_coords
