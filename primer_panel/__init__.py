@@ -1,3 +1,3 @@
 """Primer Panel Pipeline — Stage 1: Target Generation + Stage 2: Primer Design + Stage 3: Specificity."""
 
-__version__ = "0.6.2"
+__version__ = "0.7.0"
