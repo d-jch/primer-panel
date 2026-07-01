@@ -602,6 +602,23 @@ def main(argv: list[str] | None = None) -> None:
         logger.error("--genes is required (e.g. --genes HFE HJV TFR2)")
         sys.exit(1)
 
+    # Deduplicate genes (preserve order)
+    seen: set[str] = set()
+    deduped_genes: list[str] = []
+    for gene in args.genes:
+        if gene not in seen:
+            seen.add(gene)
+            deduped_genes.append(gene)
+    if len(deduped_genes) < len(args.genes):
+        duplicates = [g for g in args.genes if args.genes.count(g) > 1]
+        dup_set = sorted(set(duplicates))
+        logger.warning(
+            "Duplicate genes detected and removed: %s. "
+            "%d unique genes will be processed.",
+            ", ".join(dup_set), len(deduped_genes),
+        )
+    args.genes = deduped_genes
+
     # Resolve stages
     run_design, run_specificity = resolve_stage(
         args.stage, args.design_primers, args.check_specificity
