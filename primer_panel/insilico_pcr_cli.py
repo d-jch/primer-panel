@@ -99,6 +99,7 @@ def main(argv: list[str] | None = None) -> None:
     from .writers import (
         PrimerRecord,
         build_specificity_records,
+        write_specificity_clean_tsv,
         write_specificity_tsv,
         write_unique_primers,
         write_specificity_summary,
@@ -220,8 +221,12 @@ def main(argv: list[str] | None = None) -> None:
     write_unique_primers(spec_records, unique_path)
     write_specificity_summary(spec_records, spec_summary_path)
 
+    clean_path = args.output_dir / "primers_specificity_clean.tsv"
+    write_specificity_clean_tsv(spec_records, clean_path)
+
     logger.info("Primers specificity TSV → %s", spec_tsv_path)
     logger.info("Unique primers TSV → %s", unique_path)
+    logger.info("Clean specificity TSV → %s", clean_path)
     logger.info("Stage 3 summary → %s", spec_summary_path)
 
     # Print summary
