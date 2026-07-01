@@ -37,6 +37,7 @@ from .writers import (
     write_primers_xlsx,
     write_qc_summary,
     write_required_bed,
+    write_specificity_clean_tsv,
     write_specificity_summary,
     write_specificity_tsv,
     write_summary_tsv,
@@ -343,8 +344,12 @@ def _run_stage3(
     write_unique_primers(spec_records, unique_path)
     write_specificity_summary(spec_records, spec_summary_path)
 
+    clean_path = cfg.output_dir / "primers_specificity_clean.tsv"
+    write_specificity_clean_tsv(spec_records, clean_path)
+
     logger.info("Primers specificity TSV → %s", spec_tsv_path)
     logger.info("Unique primers TSV → %s", unique_path)
+    logger.info("Clean specificity TSV → %s", clean_path)
     logger.info("Stage 3 summary → %s", spec_summary_path)
     logger.info(
         "Stage 3 done. %d unique_pass / %d total ok → %s",

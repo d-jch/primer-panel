@@ -968,6 +968,31 @@ def write_unique_primers(records: list[SpecificityRecord], path: Path) -> None:
                 writer.writerow({col: getattr(r, col) for col in _SPECIFICITY_COLS})
 
 
+_SPECIFICITY_CLEAN_COLS = [
+    "target_id", "primer_rank",
+    "forward_primer", "reverse_primer",
+    "forward_tm", "reverse_tm",
+    "forward_gc", "reverse_gc",
+    "primer3_product_size",
+    "insilico_hits",
+]
+
+
+def write_specificity_clean_tsv(records: list[SpecificityRecord], path: Path) -> None:
+    """Write a clean specificity TSV: unique_pass only, no SNP overlap, minimal columns.
+
+    Filters to rows where insilico_status == "unique_pass" and
+    common_snp_risk == "none", then drops all columns except the 10
+    retained in _SPECIFICITY_CLEAN_COLS.
+    """
+    with open(path, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=_SPECIFICITY_CLEAN_COLS, delimiter="\t")
+        writer.writeheader()
+        for r in records:
+            if r.insilico_status == "unique_pass" and r.common_snp_risk == "none":
+                writer.writerow({col: getattr(r, col) for col in _SPECIFICITY_CLEAN_COLS})
+
+
 def write_specificity_summary(
     records: list[SpecificityRecord],
     path: Path,
