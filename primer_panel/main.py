@@ -22,7 +22,7 @@ from .preflight import (
 )
 from .target_planner_adapter import plan_targets_with_external_planner
 from .stage3_inputs import build_stage3_inputs
-from .variant_annotation import load_dbsnp_db, annotate_primer_pair
+from .variant_annotation import load_dbsnp_db, annotate_primer_pair, annotate_primer_snps
 from .writers import (
     FailedTarget,
     PrimerRecord,
@@ -285,14 +285,44 @@ def _run_stage3(
             left_start = target_rec.template_start + pr.primer_left_start
             right_start = target_rec.template_start + pr.primer_right_start
 
-            annotation = annotate_primer_pair(
-                snp_db,
-                target_rec.template_chrom,
-                left_start,
-                pr.primer_left_len,
-                right_start,
-                pr.primer_right_len,
-            )
+            if target_rec.strand == "-":
+                # Minus-strand gene: forward primer (now PRIMER_RIGHT sequence)
+                # is at right_start and extends LEFT on the + strand;
+                # reverse primer (now PRIMER_LEFT sequence) is at left_start
+                # and extends RIGHT.  Use per-primer annotation to get the
+                # 3' end direction correct.
+                fwd_risk, fwd_total, fwd_3p, fwd_hits = annotate_primer_snps(
+                    snp_db, target_rec.template_chrom,
+                    right_start, pr.primer_right_len, is_reverse=True,
+                )
+                rev_risk, rev_total, rev_3p, rev_hits = annotate_primer_snps(
+                    snp_db, target_rec.template_chrom,
+                    left_start, pr.primer_left_len, is_reverse=False,
+                )
+                risk_order = {"none": 0, "medium": 1, "high": 2}
+                overall_risk = max(fwd_risk, rev_risk, key=lambda r: risk_order.get(r, 0))
+                all_hits = []
+                if fwd_hits:
+                    all_hits.append(f"left:{fwd_hits}")
+                if rev_hits:
+                    all_hits.append(f"right:{rev_hits}")
+                annotation = {
+                    "common_snp_risk": overall_risk,
+                    "left_primer_common_snp_count": fwd_total,
+                    "right_primer_common_snp_count": rev_total,
+                    "left_primer_3p_common_snp_count": fwd_3p,
+                    "right_primer_3p_common_snp_count": rev_3p,
+                    "common_snp_hits": "|".join(all_hits),
+                }
+            else:
+                annotation = annotate_primer_pair(
+                    snp_db,
+                    target_rec.template_chrom,
+                    left_start,
+                    pr.primer_left_len,
+                    right_start,
+                    pr.primer_right_len,
+                )
             primer_name = f"{pr.target_id}_rank{pr.primer_rank}"
             snp_annotations[primer_name] = annotation
 

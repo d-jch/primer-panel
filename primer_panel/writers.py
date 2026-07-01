@@ -267,27 +267,57 @@ def build_primer_records(
             ))
         else:
             for pr in results:
-                primer_records.append(PrimerRecord(
-                    target_id=tr.target_id,
-                    primer_rank=pr.primer_rank,
-                    forward_primer=pr.forward_primer,
-                    reverse_primer=pr.reverse_primer,
-                    forward_tm=pr.forward_tm,
-                    reverse_tm=pr.reverse_tm,
-                    tm_diff=pr.tm_diff,
-                    forward_gc=pr.forward_gc,
-                    reverse_gc=pr.reverse_gc,
-                    primer_pair_penalty=pr.primer_pair_penalty,
-                    primer_left_start=pr.primer_left_start,
-                    primer_left_len=pr.primer_left_len,
-                    primer_right_start=pr.primer_right_start,
-                    primer_right_len=pr.primer_right_len,
-                    primer3_product_size=pr.primer3_product_size,
-                    primer3_status=pr.primer3_status,
-                    primer3_explain=pr.primer3_explain,
-                    sequence_target_start_0based=pr.sequence_target_start_0based,
-                    sequence_target_length=pr.sequence_target_length,
-                ))
+                if tr.strand == "-":
+                    # Minus-strand gene: the design template is the + strand
+                    # sequence, so Primer3's PRIMER_LEFT (binding the + strand)
+                    # is the biological *reverse* primer, and PRIMER_RIGHT
+                    # (binding the - strand) is the biological *forward*
+                    # primer.  Swap labels so "forward" always means the
+                    # transcription-direction primer.
+                    # Coordinates stay as-is (both are + strand positions).
+                    primer_records.append(PrimerRecord(
+                        target_id=tr.target_id,
+                        primer_rank=pr.primer_rank,
+                        forward_primer=pr.reverse_primer,
+                        reverse_primer=pr.forward_primer,
+                        forward_tm=pr.reverse_tm,
+                        reverse_tm=pr.forward_tm,
+                        tm_diff=pr.tm_diff,
+                        forward_gc=pr.reverse_gc,
+                        reverse_gc=pr.forward_gc,
+                        primer_pair_penalty=pr.primer_pair_penalty,
+                        primer_left_start=pr.primer_left_start,
+                        primer_left_len=pr.primer_left_len,
+                        primer_right_start=pr.primer_right_start,
+                        primer_right_len=pr.primer_right_len,
+                        primer3_product_size=pr.primer3_product_size,
+                        primer3_status=pr.primer3_status,
+                        primer3_explain=pr.primer3_explain,
+                        sequence_target_start_0based=pr.sequence_target_start_0based,
+                        sequence_target_length=pr.sequence_target_length,
+                    ))
+                else:
+                    primer_records.append(PrimerRecord(
+                        target_id=tr.target_id,
+                        primer_rank=pr.primer_rank,
+                        forward_primer=pr.forward_primer,
+                        reverse_primer=pr.reverse_primer,
+                        forward_tm=pr.forward_tm,
+                        reverse_tm=pr.reverse_tm,
+                        tm_diff=pr.tm_diff,
+                        forward_gc=pr.forward_gc,
+                        reverse_gc=pr.reverse_gc,
+                        primer_pair_penalty=pr.primer_pair_penalty,
+                        primer_left_start=pr.primer_left_start,
+                        primer_left_len=pr.primer_left_len,
+                        primer_right_start=pr.primer_right_start,
+                        primer_right_len=pr.primer_right_len,
+                        primer3_product_size=pr.primer3_product_size,
+                        primer3_status=pr.primer3_status,
+                        primer3_explain=pr.primer3_explain,
+                        sequence_target_start_0based=pr.sequence_target_start_0based,
+                        sequence_target_length=pr.sequence_target_length,
+                    ))
 
     return primer_records
 
