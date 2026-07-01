@@ -34,7 +34,6 @@ test = ["pytest"]
 
 [project.scripts]
 primer-panel = "primer_panel.main:main"
-primer-panel-finalize = "primer_panel.panel_finalization:main"
 
 [tool.setuptools.packages.find]
 include = ["primer_panel*"]

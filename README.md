@@ -68,14 +68,11 @@ RUN pip install primer-panel
 primer-panel --genes HFE HJV TFR2 SLC40A1 HAMP FTH1 \
   --stage targets --output-dir outputs/targets
 
-# Full pipeline (default): targets + primers + specificity
+# Full pipeline
 primer-panel --genes HFE HJV TFR2 SLC40A1 HAMP FTH1 \
   --target-size 2700-3300 --primer-flank 500 \
-  --genome-fasta /path/to/hg38.fa --output-dir outputs/full
-
-# Finalize: select best unique primer per target
-primer-panel-finalize --input-dir outputs/full \
-  --output-dir outputs/panel_final --genome-fasta /path/to/hg38.fa
+  --genome-fasta /path/to/hg38.fa \
+  --common-dbsnp-bed /path/to/dbSnp155Common.bb
 ```
 
 ## Common Options
@@ -164,35 +161,28 @@ Check `https://hgdownload.soe.ucsc.edu/gbdb/hg38/snp/` for newer releases.
 | `stage3_summary.txt` | 3 | Per-target specificity summary. |
 | `run_summary.txt` | all | QC summary for the full run. |
 
-## primer-panel-finalize
+## Rescue
 
-Selects the best unique primer per target from Stage 3 outputs.
-
-```bash
-primer-panel-finalize \
-  --input-dir outputs/run \
-  --output-dir outputs/panel_final \
-  --genome-fasta /path/to/hg38.fa
-```
-
-| File | Description |
-| --- | --- |
-| `recommended_primers.tsv` / `.xlsx` | Best `unique_pass` primer per target. |
-| `failed_or_needs_review_targets.tsv` | Targets without a unique primer. |
-| `panel_summary.txt` | Human-readable summary. |
-
-### Rescue (experimental)
-
-Re-runs Primer3 for targets without a unique primer.  Must be explicitly
-requested.  Currently only `FTH1_cds1_4` has an implemented strategy.
+Re-run Stage 2+3 for specific targets with relaxed parameters.  Useful when
+a target has too few clean primers after the main run.
 
 ```bash
-primer-panel-finalize --input-dir outputs/run --output-dir outputs/panel_final \
-  --genome-fasta /path/to/hg38.fa --rescue-target FTH1_cds1_4
+# Run rescue against an existing output directory (no --genes)
+primer-panel --output-dir outputs/full \
+  --genome-fasta /path/to/hg38.fa \
+  --common-dbsnp-bed /path/to/dbSnp155Common.bb \
+  --rescue-target DENND3_cds18 --rescue-flank 500 --rescue-num-return 20
 ```
 
-See `primer-panel-finalize --help` for `--rescue-all` and
-`--experimental-split-rescue`.
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `--rescue-target ID [ID ...]` | (required) | Target IDs to rescue, e.g. `DENND3_cds18`. |
+| `--rescue-flank` | same as `--primer-flank` | Wider template for Primer3 search. |
+| `--rescue-num-return` | 20 | More Primer3 candidates. |
+
+Rescue loads existing outputs from `--output-dir`, re-runs Stage 2+3 for the
+specified targets, and merges results back into all output files.  Primers from
+the rescue pass have ranks offset by +100.
 
 ## Specificity Status
 
