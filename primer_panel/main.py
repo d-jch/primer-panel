@@ -630,27 +630,12 @@ def _run_rescue(
     for r in all_records:
         original_records[r.target_id] = r
 
-    # Build rescue config: apply rescue-specific Primer3 overrides
-    rescue_overrides = {}
-    if cfg.rescue_min_tm is not None:
-        rescue_overrides["primer_min_tm"] = cfg.rescue_min_tm
-    if cfg.rescue_max_tm is not None:
-        rescue_overrides["primer_max_tm"] = cfg.rescue_max_tm
-    if cfg.rescue_min_gc is not None:
-        rescue_overrides["primer_min_gc"] = cfg.rescue_min_gc
-    if cfg.rescue_max_gc is not None:
-        rescue_overrides["primer_max_gc"] = cfg.rescue_max_gc
-    if cfg.rescue_min_size is not None:
-        rescue_overrides["primer_min_size"] = cfg.rescue_min_size
-    if cfg.rescue_opt_size is not None:
-        rescue_overrides["primer_opt_size"] = cfg.rescue_opt_size
-    if cfg.rescue_max_size is not None:
-        rescue_overrides["primer_max_size"] = cfg.rescue_max_size
+    # Build rescue config: inherit all Primer3 params from main run,
+    # only override primer_flank (wider template) and primer_num_return
     rescue_cfg = dataclasses.replace(
         cfg,
         primer_flank=cfg.rescue_flank,
         primer_num_return=cfg.rescue_num_return,
-        **rescue_overrides,
     )
 
     # Recompute template boundaries with rescue_flank
@@ -1054,20 +1039,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="Template extension for rescue (default: same as --primer-flank).")
     p.add_argument("--rescue-num-return", type=int, default=20,
                    help="PRIMER_NUM_RETURN for rescue runs (default: 20).")
-    p.add_argument("--rescue-min-tm", type=float, default=None,
-                   help="Tighter PRIMER_MIN_TM for rescue (default: same as --primer-min-tm).")
-    p.add_argument("--rescue-max-tm", type=float, default=None,
-                   help="Tighter PRIMER_MAX_TM for rescue (default: same as --primer-max-tm).")
-    p.add_argument("--rescue-min-gc", type=float, default=None,
-                   help="Tighter PRIMER_MIN_GC for rescue (default: same as --primer-min-gc).")
-    p.add_argument("--rescue-max-gc", type=float, default=None,
-                   help="Tighter PRIMER_MAX_GC for rescue (default: same as --primer-max-gc).")
-    p.add_argument("--rescue-min-size", type=int, default=None,
-                   help="Tighter PRIMER_MIN_SIZE for rescue (default: same as --primer-min-size).")
-    p.add_argument("--rescue-opt-size", type=int, default=None,
-                   help="Tighter PRIMER_OPT_SIZE for rescue (default: same as --primer-opt-size).")
-    p.add_argument("--rescue-max-size", type=int, default=None,
-                   help="Tighter PRIMER_MAX_SIZE for rescue (default: same as --primer-max-size).")
 
     # --- Diagnostics ---
     p.add_argument("--doctor", action="store_true",
@@ -1243,13 +1214,6 @@ def main(argv: list[str] | None = None) -> None:
         # Rescue
         rescue_flank=args.rescue_flank if args.rescue_flank is not None else args.primer_flank,
         rescue_num_return=args.rescue_num_return,
-        rescue_min_tm=args.rescue_min_tm,
-        rescue_max_tm=args.rescue_max_tm,
-        rescue_min_gc=args.rescue_min_gc,
-        rescue_max_gc=args.rescue_max_gc,
-        rescue_min_size=args.rescue_min_size,
-        rescue_opt_size=args.rescue_opt_size,
-        rescue_max_size=args.rescue_max_size,
     )
 
     # --- Standalone rescue mode ---

@@ -88,13 +88,6 @@ class PipelineConfig:
     # --- Rescue ---
     rescue_flank: int = 300                 # template extension for rescue (default: same as primer_flank)
     rescue_num_return: int = 20             # PRIMER_NUM_RETURN for rescue (default: more candidates)
-    rescue_min_tm: float | None = None      # tighter min TM for rescue (None = use main config value)
-    rescue_max_tm: float | None = None      # tighter max TM for rescue
-    rescue_min_gc: float | None = None      # tighter min GC for rescue
-    rescue_max_gc: float | None = None      # tighter max GC for rescue
-    rescue_min_size: int | None = None      # tighter min primer size for rescue
-    rescue_opt_size: int | None = None      # tighter opt primer size for rescue
-    rescue_max_size: int | None = None      # tighter max primer size for rescue
 
     def build_primer3_overrides(self) -> dict[str, str]:
         """Build dict of Primer3 tag overrides from user-specified CLI args.
