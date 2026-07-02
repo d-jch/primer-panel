@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 import time
@@ -405,6 +406,96 @@ def _write_rescue_summary(
     logger.info("Rescue summary → %s", path)
 
 
+def _write_run_config(cfg: PipelineConfig, output_dir: Path) -> None:
+    """Write run_config.json so rescue mode can inherit main-run parameters."""
+    config = {
+        "genome_fasta": str(cfg.genome_fasta) if cfg.genome_fasta else None,
+        "common_dbsnp_bed": str(cfg.common_dbsnp_bed) if cfg.common_dbsnp_bed else None,
+        "product_min": cfg.product_min,
+        "product_max": cfg.product_max,
+        "primer_flank": cfg.primer_flank,
+        "is_pcr_bin": cfg.is_pcr_bin,
+        "pcr_tolerance": cfg.pcr_tolerance,
+        "ispcr_db": str(cfg.ispcr_db) if cfg.ispcr_db else None,
+        "ispcr_ooc": str(cfg.ispcr_ooc) if cfg.ispcr_ooc else None,
+        "ispcr_tile_size": cfg.ispcr_tile_size,
+        "prepare_ispcr_db": cfg.prepare_ispcr_db,
+        "make_ispcr_ooc": cfg.make_ispcr_ooc,
+        # Primer3 overrides (None = Primer3Plus defaults)
+        "primer_num_return": cfg.primer_num_return,
+        "primer_opt_size": cfg.primer_opt_size,
+        "primer_min_size": cfg.primer_min_size,
+        "primer_max_size": cfg.primer_max_size,
+        "primer_opt_tm": cfg.primer_opt_tm,
+        "primer_min_tm": cfg.primer_min_tm,
+        "primer_max_tm": cfg.primer_max_tm,
+        "primer_max_tm_diff": cfg.primer_max_tm_diff,
+        "primer_min_gc": cfg.primer_min_gc,
+        "primer_max_gc": cfg.primer_max_gc,
+    }
+    path = output_dir / "run_config.json"
+    with open(path, "w") as fh:
+        json.dump(config, fh, indent=2)
+    logger.debug("Run config written to %s", path)
+
+
+def _apply_run_config(
+    cfg: PipelineConfig,
+    output_dir: Path,
+    rescue_flank_arg: int | None,
+    rescue_num_return: int,
+) -> PipelineConfig:
+    """Load run_config.json from output_dir and merge rescue overrides.
+
+    All pipeline parameters are loaded from the config file except
+    rescue_flank and rescue_num_return which come from CLI args.
+    """
+    import dataclasses
+
+    path = output_dir / "run_config.json"
+    if not path.exists():
+        logger.error(
+            "run_config.json not found in %s — run the full pipeline first, "
+            "or provide --genome-fasta etc. manually.", output_dir,
+        )
+        sys.exit(1)
+
+    with open(path) as fh:
+        rc = json.load(fh)
+
+    flank = rescue_flank_arg if rescue_flank_arg is not None else rc.get("primer_flank", 300)
+
+    return dataclasses.replace(
+        cfg,
+        genome_fasta=Path(rc["genome_fasta"]) if rc.get("genome_fasta") else None,
+        common_dbsnp_bed=Path(rc["common_dbsnp_bed"]) if rc.get("common_dbsnp_bed") else None,
+        product_min=rc.get("product_min", 2700),
+        product_max=rc.get("product_max", 3300),
+        primer_flank=rc.get("primer_flank", 300),
+        is_pcr_bin=rc.get("is_pcr_bin", "isPcr"),
+        pcr_tolerance=rc.get("pcr_tolerance", 10),
+        ispcr_db=Path(rc["ispcr_db"]) if rc.get("ispcr_db") else None,
+        ispcr_ooc=Path(rc["ispcr_ooc"]) if rc.get("ispcr_ooc") else None,
+        ispcr_tile_size=rc.get("ispcr_tile_size", 11),
+        prepare_ispcr_db=rc.get("prepare_ispcr_db", False),
+        make_ispcr_ooc=rc.get("make_ispcr_ooc", False),
+        primer_num_return=rc.get("primer_num_return"),
+        primer_opt_size=rc.get("primer_opt_size"),
+        primer_min_size=rc.get("primer_min_size"),
+        primer_max_size=rc.get("primer_max_size"),
+        primer_opt_tm=rc.get("primer_opt_tm"),
+        primer_min_tm=rc.get("primer_min_tm"),
+        primer_max_tm=rc.get("primer_max_tm"),
+        primer_max_tm_diff=rc.get("primer_max_tm_diff"),
+        primer_min_gc=rc.get("primer_min_gc"),
+        primer_max_gc=rc.get("primer_max_gc"),
+        check_specificity=True,
+        design_primers=True,
+        rescue_flank=flank,
+        rescue_num_return=rescue_num_return,
+    )
+
+
 def _run_rescue_standalone(
     args: argparse.Namespace,
     cfg: PipelineConfig,
@@ -412,18 +503,20 @@ def _run_rescue_standalone(
     """Standalone rescue: load existing outputs, re-run Stage 2+3, merge.
 
     Called when --rescue-target is specified without --genes.
+    Parameters not explicitly passed are loaded from run_config.json.
     """
     import csv
 
     out = cfg.output_dir
 
-    # 1. Validate prerequisites
-    if cfg.genome_fasta is None:
-        logger.error(
-            "Rescue requires --genome-fasta.\n"
-            "  primer-panel --rescue-target ... --genome-fasta /path/to/hg38.fa"
-        )
-        sys.exit(1)
+    # 1. Load config from main run, apply rescue-specific overrides
+    cfg = _apply_run_config(
+        cfg, out,
+        rescue_flank_arg=args.rescue_flank,
+        rescue_num_return=args.rescue_num_return,
+    )
+
+    # 2. Validate prerequisites
     if cfg.common_dbsnp_bed and not cfg.common_dbsnp_bed.exists():
         logger.error("--common-dbsnp-bed path not found: %s", cfg.common_dbsnp_bed)
         sys.exit(1)
@@ -1380,6 +1473,9 @@ def main(argv: list[str] | None = None) -> None:
     write_qc_summary(all_records, all_failed, primer_records, cfg, qc_path)
 
     logger.info("QC summary → %s", qc_path)
+
+    # Write run_config.json for rescue replay
+    _write_run_config(cfg, cfg.output_dir)
 
 
 if __name__ == "__main__":
