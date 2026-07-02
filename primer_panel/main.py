@@ -417,15 +417,18 @@ def _run_rescue_standalone(
 
     out = cfg.output_dir
 
-    # 1. Validate prerequisites (preflight checks first)
-    preflight_stage3(cfg)
-    preflight_bigbed_dbsnp(cfg)
+    # 1. Validate prerequisites
     if cfg.genome_fasta is None:
-        logger.error("Rescue requires --genome-fasta")
+        logger.error(
+            "Rescue requires --genome-fasta.\n"
+            "  primer-panel --rescue-target ... --genome-fasta /path/to/hg38.fa"
+        )
         sys.exit(1)
     if cfg.common_dbsnp_bed and not cfg.common_dbsnp_bed.exists():
         logger.error("--common-dbsnp-bed path not found: %s", cfg.common_dbsnp_bed)
         sys.exit(1)
+    preflight_stage3(cfg)
+    preflight_bigbed_dbsnp(cfg)
 
     tsv_path = out / "target_summary.tsv"
     if not tsv_path.exists():
